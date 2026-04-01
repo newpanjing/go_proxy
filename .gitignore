@@ -1,0 +1,18 @@
+# Binaries
+/go-proxy
+/go-proxy.exe
+dist/
+
+# Config files with local data
+config.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+dist/

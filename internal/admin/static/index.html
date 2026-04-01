@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Go Proxy 管理面板</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0f172a;
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+        .container { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+        h1 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle { text-align: center; color: #64748b; margin-bottom: 40px; }
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid #334155;
+        }
+        .card h2 {
+            font-size: 1.1rem;
+            margin-bottom: 16px;
+            color: #94a3b8;
+        }
+        .config-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+        .config-row label { min-width: 80px; color: #94a3b8; font-size: 0.9rem; }
+        .config-row input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 12px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
+        .btn {
+            padding: 8px 20px;
+            border-radius: 8px;
+            border: none;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        .btn-primary { background: #3b82f6; color: white; }
+        .btn-primary:hover { background: #2563eb; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #22c55e; color: white; }
+        .btn-success:hover { background: #16a34a; }
+        .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            text-align: left;
+            padding: 12px;
+            color: #64748b;
+            font-weight: 500;
+            border-bottom: 1px solid #334155;
+            font-size: 0.85rem;
+        }
+        td {
+            padding: 12px;
+            border-bottom: 1px solid #1e293b;
+            font-size: 0.9rem;
+        }
+        tr:hover td { background: #1e293b; }
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+        }
+        .badge-yes { background: #22c55e20; color: #22c55e; }
+        .badge-no { background: #ef444420; color: #ef4444; }
+        .header-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+        .header-chip {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            background: #3b82f620;
+            color: #93c5fd;
+            font-family: monospace;
+        }
+        .header-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .header-row input {
+            flex: 1;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 10px;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+        }
+        .header-row input:focus { outline: none; border-color: #3b82f6; }
+        .header-row .btn-remove {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 4px 8px;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #475569;
+        }
+        .form-overlay {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+        .form-overlay.active { display: flex; }
+        .form-card {
+            background: #1e293b;
+            border-radius: 16px;
+            padding: 32px;
+            width: 560px;
+            max-height: 90vh;
+            overflow-y: auto;
+            border: 1px solid #334155;
+        }
+        .form-card h3 { margin-bottom: 24px; font-size: 1.2rem; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; color: #94a3b8; font-size: 0.85rem; }
+        .form-group input {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
+        .form-group input:focus { outline: none; border-color: #3b82f6; }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .toggle {
+            position: relative;
+            width: 44px;
+            height: 24px;
+            background: #334155;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .toggle.active { background: #3b82f6; }
+        .toggle::after {
+            content: '';
+            position: absolute;
+            top: 2px; left: 2px;
+            width: 20px; height: 20px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.3s;
+        }
+        .toggle.active::after { transform: translateX(20px); }
+        .form-actions { display: flex; justify-content: flex-end; gap: 12px; margin-top: 24px; }
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            color: white;
+            font-size: 0.9rem;
+            z-index: 200;
+            animation: slideIn 0.3s, fadeOut 0.3s 2.7s;
+        }
+        .toast-success { background: #22c55e; }
+        .toast-error { background: #ef4444; }
+        @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+        @keyframes fadeOut { to { opacity: 0; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Go Proxy</h1>
+        <p class="subtitle">反向代理管理面板</p>
+
+        <div class="card">
+            <h2>基本配置</h2>
+            <div class="config-row">
+                <label>监听端口</label>
+                <input type="number" id="port" min="1" max="65535" value="8080">
+                <button class="btn btn-primary btn-sm" onclick="saveConfig()">保存</button>
+            </div>
+            <div style="color: #475569; font-size: 0.8rem; margin-top: 8px;">
+                提示：修改端口后需要重启代理服务才能生效
+            </div>
+        </div>
+
+        <div class="card">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <h2 style="margin:0;">路由规则</h2>
+                <button class="btn btn-primary btn-sm" onclick="showAddForm()">+ 添加路由</button>
+            </div>
+            <div id="routes-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>路径</th>
+                            <th>目标地址</th>
+                            <th>去除前缀</th>
+                            <th>超时</th>
+                            <th>自定义 Headers</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="routes-body"></tbody>
+                </table>
+                <div id="empty-state" class="empty-state" style="display:none;">
+                    暂无路由规则，点击"添加路由"开始配置
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>使用说明</h2>
+            <div style="color: #94a3b8; font-size: 0.85rem; line-height: 1.8;">
+                <p><strong style="color:#e2e8f0">路径匹配：</strong>请求路径以配置的路径开头即匹配</p>
+                <p><strong style="color:#e2e8f0">去除前缀：</strong>开启后，转发时会去掉匹配的路径前缀</p>
+                <p><strong style="color:#e2e8f0">示例：</strong>路径 <code>/api</code>，目标 <code>http://192.168.1.10:3000</code></p>
+                <p style="padding-left:16px">- 去除前缀：/api/users -> http://192.168.1.10:3000/users</p>
+                <p style="padding-left:16px">- 保留前缀：/api/users -> http://192.168.1.10:3000/api/users</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add/Edit Route Form -->
+    <div class="form-overlay" id="form-overlay">
+        <div class="form-card">
+            <h3 id="form-title">添加路由</h3>
+            <input type="hidden" id="original-path">
+            <div class="form-group">
+                <label>路径 (如 /api, /aaa)</label>
+                <input type="text" id="route-path" placeholder="/api">
+            </div>
+            <div class="form-group">
+                <label>目标地址 (如 http://192.168.1.10:3000)</label>
+                <input type="text" id="route-target" placeholder="http://192.168.1.10:3000">
+            </div>
+            <div class="form-group">
+                <label>去除路径前缀（转发时不携带匹配的路径前缀）</label>
+                <div class="toggle-row">
+                    <div class="toggle active" id="strip-toggle" onclick="toggleStrip()"></div>
+                    <span id="strip-label">是</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label>超时时间 <span style="color:#64748b;font-size:0.75rem">（秒，0 = 默认30s，超时返回504）</span></label>
+                <input type="number" id="route-timeout" min="0" max="300" value="0" placeholder="30">
+            </div>
+            <div class="form-group">
+                <label>自定义 Headers <span style="color:#64748b;font-size:0.75rem">（转发时附加的请求头）</span></label>
+                <div id="headers-container"></div>
+                <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addHeaderRow()">+ 添加 Header</button>
+            </div>
+            <div class="form-actions">
+                <button class="btn" style="background:#334155;color:#e2e8f0" onclick="hideForm()">取消</button>
+                <button class="btn btn-primary" onclick="saveRoute()">保存</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let stripPrefix = true;
+        let editHeaders = {}; // {key: value}
+
+        function renderHeaderRows() {
+            const container = document.getElementById('headers-container');
+            const keys = Object.keys(editHeaders);
+            if (keys.length === 0) {
+                container.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">暂无自定义 Header</div>';
+                return;
+            }
+            container.innerHTML = keys.map(k => `
+                <div class="header-row">
+                    <input type="text" value="${esc(k)}" placeholder="Header名称" onchange="updateHeaderKey('${esc(k)}', this.value)">
+                    <input type="text" value="${esc(editHeaders[k])}" placeholder="Header值" onchange="updateHeaderValue('${esc(k)}', this.value)">
+                    <button class="btn-remove" onclick="removeHeader('${esc(k)}')">×</button>
+                </div>
+            `).join('');
+        }
+
+        function addHeaderRow() {
+            let key = '';
+            let i = 1;
+            while (editHeaders.hasOwnProperty('X-Custom-' + i)) i++;
+            key = 'X-Custom-' + i;
+            editHeaders[key] = '';
+            renderHeaderRows();
+        }
+
+        function updateHeaderKey(oldKey, newKey) {
+            const val = editHeaders[oldKey];
+            delete editHeaders[oldKey];
+            editHeaders[newKey] = val;
+        }
+
+        function updateHeaderValue(key, val) {
+            editHeaders[key] = val;
+        }
+
+        function removeHeader(key) {
+            delete editHeaders[key];
+            renderHeaderRows();
+        }
+
+        async function loadConfig() {
+            const resp = await fetch('/api/config');
+            const cfg = await resp.json();
+            document.getElementById('port').value = cfg.port || 8080;
+            renderRoutes(cfg.routes || []);
+        }
+
+        function renderRoutes(routes) {
+            const tbody = document.getElementById('routes-body');
+            const empty = document.getElementById('empty-state');
+            if (routes.length === 0) {
+                tbody.innerHTML = '';
+                empty.style.display = 'block';
+                return;
+            }
+            empty.style.display = 'none';
+            tbody.innerHTML = routes.map(r => {
+                const hdrs = r.headers || {};
+                const hdrKeys = Object.keys(hdrs);
+                const hdrHtml = hdrKeys.length > 0
+                    ? `<div class="header-chips">${hdrKeys.map(k => `<span class="header-chip">${esc(k)}: ${esc(hdrs[k])}</span>`).join('')}</div>`
+                    : `<span style="color:#475569">-</span>`;
+                const timeoutText = r.timeout > 0 ? r.timeout + 's' : '默认';
+                return `
+                <tr>
+                    <td><code style="color:#60a5fa">${esc(r.path)}</code></td>
+                    <td><code>${esc(r.target)}</code></td>
+                    <td><span class="badge ${r.strip_prefix ? 'badge-yes' : 'badge-no'}">${r.strip_prefix ? '是' : '否'}</span></td>
+                    <td>${timeoutText}</td>
+                    <td>${hdrHtml}</td>
+                    <td>
+                        <button class="btn btn-primary btn-sm" onclick='editRoute(${JSON.stringify(r)})'>编辑</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteRoute('${esc(r.path)}')">删除</button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = s;
+            return d.innerHTML;
+        }
+
+        async function saveConfig() {
+            const port = parseInt(document.getElementById('port').value);
+            const routes = (await (await fetch('/api/config')).json()).routes || [];
+            await fetch('/api/config', {
+                method: 'PUT',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({port, routes})
+            });
+            toast('配置已保存（端口修改需重启生效）', 'success');
+        }
+
+        function showAddForm() {
+            document.getElementById('form-title').textContent = '添加路由';
+            document.getElementById('original-path').value = '';
+            document.getElementById('route-path').value = '';
+            document.getElementById('route-target').value = '';
+            document.getElementById('route-timeout').value = '0';
+            stripPrefix = true;
+            editHeaders = {};
+            updateStripUI();
+            renderHeaderRows();
+            document.getElementById('form-overlay').classList.add('active');
+        }
+
+        function editRoute(route) {
+            document.getElementById('form-title').textContent = '编辑路由';
+            document.getElementById('original-path').value = route.path;
+            document.getElementById('route-path').value = route.path;
+            document.getElementById('route-target').value = route.target;
+            document.getElementById('route-timeout').value = route.timeout || 0;
+            stripPrefix = route.strip_prefix;
+            editHeaders = Object.assign({}, route.headers || {});
+            updateStripUI();
+            renderHeaderRows();
+            document.getElementById('form-overlay').classList.add('active');
+        }
+
+        function hideForm() {
+            document.getElementById('form-overlay').classList.remove('active');
+        }
+
+        function toggleStrip() {
+            stripPrefix = !stripPrefix;
+            updateStripUI();
+        }
+
+        function updateStripUI() {
+            const el = document.getElementById('strip-toggle');
+            const label = document.getElementById('strip-label');
+            if (stripPrefix) {
+                el.classList.add('active');
+                label.textContent = '是';
+            } else {
+                el.classList.remove('active');
+                label.textContent = '否';
+            }
+        }
+
+        async function saveRoute() {
+            const path = document.getElementById('route-path').value.trim();
+            let target = document.getElementById('route-target').value.trim();
+            const originalPath = document.getElementById('original-path').value;
+
+            if (!path || !target) {
+                toast('请填写完整信息', 'error');
+                return;
+            }
+            if (!/^https?:\/\//.test(target)) {
+                target = 'http://' + target;
+            }
+
+            const timeout = parseInt(document.getElementById('route-timeout').value) || 0;
+            const route = {path, target, strip_prefix: stripPrefix, timeout, headers: editHeaders};
+            const origP = originalPath;
+
+            hideForm();
+
+            if (origP) {
+                const resp = await fetch('/api/routes/update', {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({original_path: origP, route})
+                });
+                const result = await resp.json();
+                if (result.error) { toast(result.error, 'error'); return; }
+                toast('路由已更新', 'success');
+            } else {
+                const resp = await fetch('/api/routes/add', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(route)
+                });
+                const result = await resp.json();
+                if (result.error) { toast(result.error, 'error'); return; }
+                toast('路由已添加', 'success');
+            }
+            loadConfig();
+        }
+
+        async function deleteRoute(path) {
+            if (!confirm('确定删除路由 ' + path + '？')) return;
+            await fetch('/api/routes/delete', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({path})
+            });
+            toast('路由已删除', 'success');
+            loadConfig();
+        }
+
+        function toast(msg, type) {
+            const el = document.createElement('div');
+            el.className = 'toast toast-' + type;
+            el.textContent = msg;
+            document.body.appendChild(el);
+            setTimeout(() => el.remove(), 3000);
+        }
+
+        // Close form on overlay click
+        document.getElementById('form-overlay').addEventListener('click', function(e) {
+            if (e.target === this) hideForm();
+        });
+
+        loadConfig();
+    </script>
+</body>
+</html>
