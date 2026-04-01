@@ -12,7 +12,7 @@
             color: #e2e8f0;
             min-height: 100vh;
         }
-        .container { max-width: 960px; margin: 0 auto; padding: 40px 20px; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
         h1 {
             text-align: center;
             font-size: 2rem;
@@ -57,22 +57,21 @@
         .btn-primary:hover { background: #2563eb; }
         .btn-danger { background: #ef4444; color: white; }
         .btn-danger:hover { background: #dc2626; }
-        .btn-success { background: #22c55e; color: white; }
-        .btn-success:hover { background: #16a34a; }
         .btn-sm { padding: 4px 12px; font-size: 0.8rem; }
         table { width: 100%; border-collapse: collapse; }
         th {
             text-align: left;
-            padding: 12px;
+            padding: 12px 8px;
             color: #64748b;
             font-weight: 500;
             border-bottom: 1px solid #334155;
             font-size: 0.85rem;
         }
         td {
-            padding: 12px;
+            padding: 12px 8px;
             border-bottom: 1px solid #1e293b;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
+            vertical-align: top;
         }
         tr:hover td { background: #1e293b; }
         .badge {
@@ -83,45 +82,21 @@
         }
         .badge-yes { background: #22c55e20; color: #22c55e; }
         .badge-no { background: #ef444420; color: #ef4444; }
-        .header-chips { display: flex; flex-wrap: wrap; gap: 4px; }
-        .header-chip {
-            display: inline-block;
+        .badge-backup { background: #f59e0b20; color: #f59e0b; }
+        .badge-weight { background: #8b5cf620; color: #a78bfa; }
+        .upstream-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
             padding: 2px 8px;
+            margin: 2px;
             border-radius: 4px;
             font-size: 0.75rem;
             background: #3b82f620;
             color: #93c5fd;
             font-family: monospace;
         }
-        .header-row {
-            display: flex;
-            gap: 8px;
-            align-items: center;
-            margin-bottom: 8px;
-        }
-        .header-row input {
-            flex: 1;
-            background: #0f172a;
-            border: 1px solid #334155;
-            border-radius: 8px;
-            padding: 8px 10px;
-            color: #e2e8f0;
-            font-size: 0.85rem;
-        }
-        .header-row input:focus { outline: none; border-color: #3b82f6; }
-        .header-row .btn-remove {
-            background: none;
-            border: none;
-            color: #ef4444;
-            cursor: pointer;
-            font-size: 1.1rem;
-            padding: 4px 8px;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #475569;
-        }
+        .empty-state { text-align: center; padding: 40px; color: #475569; }
         .form-overlay {
             display: none;
             position: fixed;
@@ -129,15 +104,16 @@
             background: rgba(0,0,0,0.7);
             z-index: 100;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
+            padding-top: 40px;
         }
         .form-overlay.active { display: flex; }
         .form-card {
             background: #1e293b;
             border-radius: 16px;
             padding: 32px;
-            width: 560px;
-            max-height: 90vh;
+            width: 640px;
+            max-height: 85vh;
             overflow-y: auto;
             border: 1px solid #334155;
         }
@@ -154,11 +130,7 @@
             font-size: 0.9rem;
         }
         .form-group input:focus { outline: none; border-color: #3b82f6; }
-        .toggle-row {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
+        .toggle-row { display: flex; align-items: center; gap: 12px; }
         .toggle {
             position: relative;
             width: 44px;
@@ -195,12 +167,50 @@
         .toast-error { background: #ef4444; }
         @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
         @keyframes fadeOut { to { opacity: 0; } }
+
+        /* Upstream editor */
+        .upstream-list { margin-top: 8px; }
+        .upstream-item {
+            display: grid;
+            grid-template-columns: 1fr 80px 60px auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+            padding: 8px 12px;
+            background: #0f172a;
+            border-radius: 8px;
+            border: 1px solid #334155;
+        }
+        .upstream-item input {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            padding: 6px 10px;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+            width: 100%;
+        }
+        .upstream-item input:focus { outline: none; border-color: #3b82f6; }
+        .upstream-item .btn-remove {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 1.2rem;
+            padding: 4px 8px;
+        }
+        .upstream-label { color: #64748b; font-size: 0.75rem; text-align: center; }
+        .section-divider {
+            border: none;
+            border-top: 1px solid #334155;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>Go Proxy</h1>
-        <p class="subtitle">反向代理管理面板</p>
+        <p class="subtitle">反向代理 & 负载均衡管理面板</p>
 
         <div class="card">
             <h2>基本配置</h2>
@@ -224,10 +234,9 @@
                     <thead>
                         <tr>
                             <th>路径</th>
-                            <th>目标地址</th>
+                            <th>Upstream 列表</th>
                             <th>去除前缀</th>
                             <th>超时</th>
-                            <th>自定义 Headers</th>
                             <th>操作</th>
                         </tr>
                     </thead>
@@ -242,11 +251,11 @@
         <div class="card">
             <h2>使用说明</h2>
             <div style="color: #94a3b8; font-size: 0.85rem; line-height: 1.8;">
-                <p><strong style="color:#e2e8f0">路径匹配：</strong>请求路径以配置的路径开头即匹配</p>
+                <p><strong style="color:#e2e8f0">路径匹配：</strong>请求路径以配置的路径前缀开头即匹配</p>
                 <p><strong style="color:#e2e8f0">去除前缀：</strong>开启后，转发时会去掉匹配的路径前缀</p>
-                <p><strong style="color:#e2e8f0">示例：</strong>路径 <code>/api</code>，目标 <code>http://192.168.1.10:3000</code></p>
-                <p style="padding-left:16px">- 去除前缀：/api/users -> http://192.168.1.10:3000/users</p>
-                <p style="padding-left:16px">- 保留前缀：/api/users -> http://192.168.1.10:3000/api/users</p>
+                <p><strong style="color:#e2e8f0">Upstream 权重：</strong>数字越大，被选中的概率越高（加权轮询）</p>
+                <p><strong style="color:#e2e8f0">Backup：</strong>标记为备用的节点，仅在所有主节点不可用时才启用</p>
+                <p><strong style="color:#e2e8f0">示例：</strong>两个节点权重 3:1，则大约 75% 请求到节点1，25% 到节点2</p>
             </div>
         </div>
     </div>
@@ -256,14 +265,12 @@
         <div class="form-card">
             <h3 id="form-title">添加路由</h3>
             <input type="hidden" id="original-path">
+
             <div class="form-group">
                 <label>路径 (如 /api, /aaa)</label>
                 <input type="text" id="route-path" placeholder="/api">
             </div>
-            <div class="form-group">
-                <label>目标地址 (如 http://192.168.1.10:3000)</label>
-                <input type="text" id="route-target" placeholder="http://192.168.1.10:3000">
-            </div>
+
             <div class="form-group">
                 <label>去除路径前缀（转发时不携带匹配的路径前缀）</label>
                 <div class="toggle-row">
@@ -271,15 +278,28 @@
                     <span id="strip-label">是</span>
                 </div>
             </div>
+
             <div class="form-group">
-                <label>超时时间 <span style="color:#64748b;font-size:0.75rem">（秒，0 = 默认30s，超时返回504）</span></label>
+                <label>超时时间 <span style="color:#64748b;font-size:0.75rem">（秒，0 = 默认30s）</span></label>
                 <input type="number" id="route-timeout" min="0" max="300" value="0" placeholder="30">
             </div>
+
+            <hr class="section-divider">
+
+            <div class="form-group">
+                <label>Upstream 列表 <span style="color:#64748b;font-size:0.75rem">（支持多个目标实现负载均衡，类似 nginx upstream）</span></label>
+                <div class="upstream-list" id="upstreams-container"></div>
+                <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addUpstreamRow()">+ 添加 Upstream</button>
+            </div>
+
+            <hr class="section-divider">
+
             <div class="form-group">
                 <label>自定义 Headers <span style="color:#64748b;font-size:0.75rem">（转发时附加的请求头）</span></label>
                 <div id="headers-container"></div>
                 <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addHeaderRow()">+ 添加 Header</button>
             </div>
+
             <div class="form-actions">
                 <button class="btn" style="background:#334155;color:#e2e8f0" onclick="hideForm()">取消</button>
                 <button class="btn btn-primary" onclick="saveRoute()">保存</button>
@@ -289,48 +309,98 @@
 
     <script>
         let stripPrefix = true;
-        let editHeaders = {}; // {key: value}
+        let editUpstreams = [];
+        let editHeaders = {};
 
-        function renderHeaderRows() {
-            const container = document.getElementById('headers-container');
-            const keys = Object.keys(editHeaders);
-            if (keys.length === 0) {
-                container.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">暂无自定义 Header</div>';
+        // --- Upstream editor ---
+        function renderUpstreamRows() {
+            const c = document.getElementById('upstreams-container');
+            if (editUpstreams.length === 0) {
+                c.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">暂无 Upstream，请添加至少一个目标</div>';
                 return;
             }
-            container.innerHTML = keys.map(k => `
-                <div class="header-row">
-                    <input type="text" value="${esc(k)}" placeholder="Header名称" onchange="updateHeaderKey('${esc(k)}', this.value)">
-                    <input type="text" value="${esc(editHeaders[k])}" placeholder="Header值" onchange="updateHeaderValue('${esc(k)}', this.value)">
-                    <button class="btn-remove" onclick="removeHeader('${esc(k)}')">×</button>
+            c.innerHTML = editUpstreams.map((u, i) => `
+                <div class="upstream-item">
+                    <div>
+                        <input type="text" value="${esc(u.target)}" placeholder="http://192.168.1.10:3000"
+                            onchange="editUpstreams[${i}].target=this.value">
+                    </div>
+                    <div>
+                        <div class="upstream-label">权重</div>
+                        <input type="number" value="${u.weight||1}" min="1" max="100"
+                            onchange="editUpstreams[${i}].weight=parseInt(this.value)||1">
+                    </div>
+                    <div style="text-align:center">
+                        <div class="upstream-label">备用</div>
+                        <div class="toggle ${u.backup?'active':''}" onclick="editUpstreams[${i}].backup=!editUpstreams[${i}].backup;renderUpstreamRows()"></div>
+                    </div>
+                    <button class="btn-remove" onclick="editUpstreams.splice(${i},1);renderUpstreamRows()">×</button>
+                </div>
+            `).join('');
+        }
+
+        function addUpstreamRow() {
+            editUpstreams.push({target:'', weight:1, backup:false});
+            renderUpstreamRows();
+        }
+
+        // --- Header editor ---
+        function renderHeaderRows() {
+            const c = document.getElementById('headers-container');
+            const keys = Object.keys(editHeaders);
+            if (keys.length === 0) {
+                c.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">暂无自定义 Header</div>';
+                return;
+            }
+            c.innerHTML = keys.map((k, i) => `
+                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+                    <input style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:0.85rem"
+                        value="${esc(k)}" placeholder="Header名称"
+                        onchange="updateHeaderKey(${i},this.value)">
+                    <input style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:0.85rem"
+                        value="${esc(editHeaders[k])}" placeholder="Header值"
+                        onchange="updateHeaderValue(${i},this.value)">
+                    <button style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1.1rem;padding:4px 8px"
+                        onclick="removeHeader(${i})">×</button>
                 </div>
             `).join('');
         }
 
         function addHeaderRow() {
-            let key = '';
-            let i = 1;
+            let key = '', i = 1;
             while (editHeaders.hasOwnProperty('X-Custom-' + i)) i++;
             key = 'X-Custom-' + i;
             editHeaders[key] = '';
             renderHeaderRows();
         }
 
-        function updateHeaderKey(oldKey, newKey) {
-            const val = editHeaders[oldKey];
-            delete editHeaders[oldKey];
-            editHeaders[newKey] = val;
-        }
-
-        function updateHeaderValue(key, val) {
-            editHeaders[key] = val;
-        }
-
-        function removeHeader(key) {
-            delete editHeaders[key];
+        function updateHeaderKey(idx, newKey) {
+            const keys = Object.keys(editHeaders);
+            if (idx < keys.length) {
+                const oldKey = keys[idx];
+                const val = editHeaders[oldKey];
+                delete editHeaders[oldKey];
+                editHeaders[newKey] = val;
+            }
             renderHeaderRows();
         }
 
+        function updateHeaderValue(idx, val) {
+            const keys = Object.keys(editHeaders);
+            if (idx < keys.length) {
+                editHeaders[keys[idx]] = val;
+            }
+        }
+
+        function removeHeader(idx) {
+            const keys = Object.keys(editHeaders);
+            if (idx < keys.length) {
+                delete editHeaders[keys[idx]];
+            }
+            renderHeaderRows();
+        }
+
+        // --- Config ---
         async function loadConfig() {
             const resp = await fetch('/api/config');
             const cfg = await resp.json();
@@ -348,19 +418,30 @@
             }
             empty.style.display = 'none';
             tbody.innerHTML = routes.map(r => {
-                const hdrs = r.headers || {};
-                const hdrKeys = Object.keys(hdrs);
-                const hdrHtml = hdrKeys.length > 0
-                    ? `<div class="header-chips">${hdrKeys.map(k => `<span class="header-chip">${esc(k)}: ${esc(hdrs[k])}</span>`).join('')}</div>`
-                    : `<span style="color:#475569">-</span>`;
+                const upstreams = r.upstreams || [];
+                const legacyTarget = r.target || '';
                 const timeoutText = r.timeout > 0 ? r.timeout + 's' : '默认';
+
+                let upsHtml = '';
+                if (upstreams.length > 0) {
+                    upsHtml = upstreams.map(u => {
+                        let badges = '';
+                        if (u.backup) badges += '<span class="badge badge-backup">备用</span>';
+                        if (u.weight > 1) badges += `<span class="badge badge-weight">w=${u.weight}</span>`;
+                        return `<div class="upstream-tag">${esc(u.target)} ${badges}</div>`;
+                    }).join('');
+                } else if (legacyTarget) {
+                    upsHtml = `<div class="upstream-tag">${esc(legacyTarget)}</div>`;
+                } else {
+                    upsHtml = '<span style="color:#475569">-</span>';
+                }
+
                 return `
                 <tr>
                     <td><code style="color:#60a5fa">${esc(r.path)}</code></td>
-                    <td><code>${esc(r.target)}</code></td>
+                    <td>${upsHtml}</td>
                     <td><span class="badge ${r.strip_prefix ? 'badge-yes' : 'badge-no'}">${r.strip_prefix ? '是' : '否'}</span></td>
                     <td>${timeoutText}</td>
-                    <td>${hdrHtml}</td>
                     <td>
                         <button class="btn btn-primary btn-sm" onclick='editRoute(${JSON.stringify(r)})'>编辑</button>
                         <button class="btn btn-danger btn-sm" onclick="deleteRoute('${esc(r.path)}')">删除</button>
@@ -370,8 +451,9 @@
         }
 
         function esc(s) {
+            if (s == null) return '';
             const d = document.createElement('div');
-            d.textContent = s;
+            d.textContent = String(s);
             return d.innerHTML;
         }
 
@@ -390,11 +472,12 @@
             document.getElementById('form-title').textContent = '添加路由';
             document.getElementById('original-path').value = '';
             document.getElementById('route-path').value = '';
-            document.getElementById('route-target').value = '';
             document.getElementById('route-timeout').value = '0';
             stripPrefix = true;
+            editUpstreams = [{target: '', weight: 1, backup: false}];
             editHeaders = {};
             updateStripUI();
+            renderUpstreamRows();
             renderHeaderRows();
             document.getElementById('form-overlay').classList.add('active');
         }
@@ -403,11 +486,21 @@
             document.getElementById('form-title').textContent = '编辑路由';
             document.getElementById('original-path').value = route.path;
             document.getElementById('route-path').value = route.path;
-            document.getElementById('route-target').value = route.target;
             document.getElementById('route-timeout').value = route.timeout || 0;
             stripPrefix = route.strip_prefix;
+
+            // Build upstreams from route
+            if (route.upstreams && route.upstreams.length > 0) {
+                editUpstreams = route.upstreams.map(u => ({...u}));
+            } else if (route.target) {
+                editUpstreams = [{target: route.target, weight: 1, backup: false}];
+            } else {
+                editUpstreams = [];
+            }
+
             editHeaders = Object.assign({}, route.headers || {});
             updateStripUI();
+            renderUpstreamRows();
             renderHeaderRows();
             document.getElementById('form-overlay').classList.add('active');
         }
@@ -435,28 +528,43 @@
 
         async function saveRoute() {
             const path = document.getElementById('route-path').value.trim();
-            let target = document.getElementById('route-target').value.trim();
             const originalPath = document.getElementById('original-path').value;
 
-            if (!path || !target) {
-                toast('请填写完整信息', 'error');
+            if (!path) {
+                toast('请填写路径', 'error');
                 return;
             }
-            if (!/^https?:\/\//.test(target)) {
-                target = 'http://' + target;
+
+            // Validate upstreams
+            const validUpstreams = editUpstreams
+                .filter(u => u.target.trim() !== '')
+                .map(u => {
+                    let t = u.target.trim();
+                    if (!/^https?:\/\//.test(t)) t = 'http://' + t;
+                    return {target: t, weight: u.weight || 1, backup: u.backup || false};
+                });
+
+            if (validUpstreams.length === 0) {
+                toast('请添加至少一个 Upstream', 'error');
+                return;
             }
 
             const timeout = parseInt(document.getElementById('route-timeout').value) || 0;
-            const route = {path, target, strip_prefix: stripPrefix, timeout, headers: editHeaders};
-            const origP = originalPath;
+            const route = {
+                path,
+                strip_prefix: stripPrefix,
+                timeout,
+                upstreams: validUpstreams,
+                headers: editHeaders
+            };
 
             hideForm();
 
-            if (origP) {
+            if (originalPath) {
                 const resp = await fetch('/api/routes/update', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({original_path: origP, route})
+                    body: JSON.stringify({original_path: originalPath, route})
                 });
                 const result = await resp.json();
                 if (result.error) { toast(result.error, 'error'); return; }
@@ -493,7 +601,6 @@
             setTimeout(() => el.remove(), 3000);
         }
 
-        // Close form on overlay click
         document.getElementById('form-overlay').addEventListener('click', function(e) {
             if (e.target === this) hideForm();
         });

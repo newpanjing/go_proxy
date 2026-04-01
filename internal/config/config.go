@@ -13,12 +13,30 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type Upstream struct {
+	Target string `json:"target" yaml:"target"`
+	Weight int    `json:"weight" yaml:"weight"`  // 0 or 1 = equal, >1 = higher chance
+	Backup bool   `json:"backup" yaml:"backup"`  // only used when all non-backup are down
+}
+
 type Route struct {
 	Path        string            `json:"path" yaml:"path"`
-	Target      string            `json:"target" yaml:"target"`
+	Target      string            `json:"target,omitempty" yaml:"target,omitempty"` // legacy single target
+	Upstreams   []Upstream        `json:"upstreams" yaml:"upstreams"`
 	StripPrefix bool              `json:"strip_prefix" yaml:"strip_prefix"`
 	Headers     map[string]string `json:"headers" yaml:"headers"`
-	Timeout     int               `json:"timeout" yaml:"timeout"` // seconds, 0 = default 30s
+	Timeout     int               `json:"timeout" yaml:"timeout"`
+}
+
+// ResolveUpstreams returns the effective upstream list.
+func (r *Route) ResolveUpstreams() []Upstream {
+	if len(r.Upstreams) > 0 {
+		return r.Upstreams
+	}
+	if r.Target != "" {
+		return []Upstream{{Target: r.Target, Weight: 1}}
+	}
+	return nil
 }
 
 type Config struct {
@@ -75,16 +93,16 @@ func (m *ConfigManager) AddRoute(route Route) error {
 	return nil
 }
 
-func (m *ConfigManager) UpdateRoute(path string, route Route) error {
+func (m *ConfigManager) UpdateRoute(originalPath string, route Route) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, r := range m.config.Routes {
-		if r.Path == path {
+		if r.Path == originalPath {
 			m.config.Routes[i] = route
 			return nil
 		}
 	}
-	return fmt.Errorf("route with path %q not found", path)
+	return fmt.Errorf("route with path %q not found", originalPath)
 }
 
 func (m *ConfigManager) DeleteRoute(path string) error {
@@ -103,45 +121,22 @@ func (m *ConfigManager) Load() error {
 	if m.path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(m.path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read config file: %w", err)
-	}
-
-	cfg := &Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
-		if err := json.Unmarshal(data, cfg); err != nil {
-			return fmt.Errorf("parse config file: unsupported format")
-		}
-	}
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if cfg.Port > 0 {
-		m.config.Port = cfg.Port
-	}
-	if len(cfg.Routes) > 0 {
-		m.config.Routes = cfg.Routes
-	}
-	return nil
+	return m.loadFromFile()
 }
 
 func (m *ConfigManager) Save() error {
 	if m.path == "" {
 		return nil
 	}
+	m.mu.RLock()
 	data, err := yaml.Marshal(m.config)
+	m.mu.RUnlock()
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 	return os.WriteFile(m.path, data, 0644)
 }
 
-// Watch starts watching the config file for changes and auto-reloads.
-// Call Close() to stop the watcher.
 func (m *ConfigManager) Watch() error {
 	if m.path == "" {
 		return nil
@@ -158,8 +153,6 @@ func (m *ConfigManager) Watch() error {
 	}
 	m.watcher = watcher
 
-	// Watch the directory (more reliable than watching the file directly,
-	// especially for editors that write temp files then rename)
 	dir := filepath.Dir(absPath)
 	if err := watcher.Add(dir); err != nil {
 		watcher.Close()
@@ -172,34 +165,26 @@ func (m *ConfigManager) Watch() error {
 			select {
 			case <-m.done:
 				return
-			case event, ok := <-watcher.Events:
+			case _, ok := <-watcher.Events:
 				if !ok {
 					return
 				}
-				// Only care about events on our config file
-				eventPath, _ := filepath.Abs(event.Name)
-				if eventPath != absPath {
-					continue
+				// Debounce all events
+				if debounceTimer != nil {
+					debounceTimer.Stop()
 				}
-				if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) {
-					// Debounce: wait 200ms for write to complete
-					if debounceTimer != nil {
-						debounceTimer.Stop()
+				debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
+					if err := m.loadFromFile(); err != nil {
+						log.Printf("[config] reload error: %v", err)
+					} else {
+						cfg := m.Get()
+						log.Printf("[config] reloaded from file (port=%d, routes=%d)", cfg.Port, len(cfg.Routes))
 					}
-					debounceTimer = time.AfterFunc(200*time.Millisecond, func() {
-						if err := m.loadFromFile(); err != nil {
-							log.Printf("[config] reload error: %v", err)
-						} else {
-							cfg := m.Get()
-							log.Printf("[config] reloaded from file (port=%d, routes=%d)", cfg.Port, len(cfg.Routes))
-						}
-					})
-				}
-			case err, ok := <-watcher.Errors:
+				})
+			case _, ok := <-watcher.Errors:
 				if !ok {
 					return
 				}
-				log.Printf("[config] watcher error: %v", err)
 			}
 		}
 	}()
@@ -215,13 +200,15 @@ func (m *ConfigManager) Close() {
 	}
 }
 
-// loadFromFile reads and fully replaces config from the file on disk.
 func (m *ConfigManager) loadFromFile() error {
 	if m.path == "" {
 		return nil
 	}
 	data, err := os.ReadFile(m.path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("read: %w", err)
 	}
 

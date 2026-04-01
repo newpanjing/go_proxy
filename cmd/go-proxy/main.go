@@ -15,7 +15,7 @@ func main() {
 	port := flag.Int("port", 0, "proxy listen port (default from config or 8080)")
 	configFile := flag.String("config", "config.yaml", "config file path")
 	adminPort := flag.Int("admin-port", 0, "admin web GUI port (default: proxy port + 1)")
-	routes := flag.String("route", "", "route in format: path=target[:strip], e.g. /aaa=http://192.168.1.10:true (can be repeated)")
+	routes := flag.String("route", "", "route in format: path=target[:strip], e.g. /aaa=http://192.168.1.10:true")
 	flag.Parse()
 
 	mgr := config.NewManager(*configFile)
@@ -23,7 +23,6 @@ func main() {
 		log.Fatalf("load config: %v", err)
 	}
 
-	// Apply CLI overrides
 	if *port > 0 {
 		mgr.SetPort(*port)
 	}
@@ -38,7 +37,7 @@ func main() {
 			path := parts[0]
 			targetAndStrip := parts[1]
 
-			stripPrefix := true // default strip
+			stripPrefix := true
 			target := targetAndStrip
 			if idx := strings.LastIndex(targetAndStrip, ":"); idx > 0 {
 				maybeBool := targetAndStrip[idx+1:]
@@ -52,10 +51,11 @@ func main() {
 				target = "http://" + target
 			}
 
-			mgr.AddRoute(config.Route{
+			_ = mgr.AddRoute(config.Route{
 				Path:        path,
 				Target:      target,
 				StripPrefix: stripPrefix,
+				Upstreams:   []config.Upstream{{Target: target, Weight: 1}},
 			})
 		}
 	}
@@ -65,7 +65,6 @@ func main() {
 		mgr.SetPort(8080)
 	}
 
-	// Determine admin port
 	ap := *adminPort
 	if ap == 0 {
 		ap = mgr.Get().Port + 1
@@ -84,24 +83,33 @@ func main() {
 		fmt.Println("    (none)")
 	}
 	for _, r := range cfg.Routes {
-		fmt.Printf("    %s -> %s (strip_prefix=%v)\n", r.Path, r.Target, r.StripPrefix)
+		upstreams := r.ResolveUpstreams()
+		var parts []string
+		for _, u := range upstreams {
+			s := u.Target
+			if u.Weight > 1 {
+				s += fmt.Sprintf(" w=%d", u.Weight)
+			}
+			if u.Backup {
+				s += " (backup)"
+			}
+			parts = append(parts, s)
+		}
+		fmt.Printf("    %s -> %s (strip=%v)\n", r.Path, strings.Join(parts, ", "), r.StripPrefix)
 	}
 	fmt.Println()
 
-	// Start admin GUI in background
 	go func() {
 		if err := admin.Start(mgr, ap); err != nil {
 			log.Fatalf("admin server: %v", err)
 		}
 	}()
 
-	// Watch config file for hot-reload
 	if err := mgr.Watch(); err != nil {
 		log.Printf("warn: config watch disabled: %v", err)
 	}
 	defer mgr.Close()
 
-	// Start proxy (blocking)
 	if err := proxy.Start(mgr); err != nil {
 		log.Fatalf("proxy server: %v", err)
 	}

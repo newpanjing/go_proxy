@@ -24,14 +24,12 @@ func Start(mgr *config.ConfigManager, port int) error {
 
 	mux := http.NewServeMux()
 
-	// API routes
 	mux.HandleFunc("/api/config", s.handleConfig)
 	mux.HandleFunc("/api/routes", s.handleRoutes)
 	mux.HandleFunc("/api/routes/add", s.handleRouteAdd)
 	mux.HandleFunc("/api/routes/update", s.handleRouteUpdate)
 	mux.HandleFunc("/api/routes/delete", s.handleRouteDelete)
 
-	// Serve static files
 	staticFS, err := fs.Sub(staticFiles, "static")
 	if err != nil {
 		return fmt.Errorf("static files: %w", err)
@@ -100,8 +98,8 @@ func (s *Server) handleRouteUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		OriginalPath string        `json:"original_path"`
-		Route        config.Route  `json:"route"`
+		OriginalPath string       `json:"original_path"`
+		Route        config.Route `json:"route"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

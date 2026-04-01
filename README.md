@@ -1,6 +1,6 @@
 # Go Proxy
 
-一个轻量级的反向代理工具，提供 Web GUI 管理界面，支持路径路由、自定义 Headers、超时控制、配置热重载等功能。
+一个轻量级的反向代理 & 负载均衡工具，提供 Web GUI 管理界面，支持 upstream 负载均衡、权重、主备、路径路由、自定义 Headers、超时控制、配置热重载等功能。
 
 ## 预览
 
@@ -9,10 +9,13 @@
 ## 功能特性
 
 - **反向代理** - 基于路径前缀匹配，类似 nginx 的 `proxy_pass`
+- **Upstream 负载均衡** - 类似 nginx upstream，支持多目标加权轮询
+- **权重分配** - 每个 upstream 可设置权重，权重越高被选中概率越大
+- **主备切换** - 标记为 backup 的节点仅在主节点全部不可用时启用
 - **去除前缀** - 可配置转发时是否去掉路径前缀（`strip_prefix`）
 - **自定义 Headers** - 每条路由可配置自定义请求头
 - **超时控制** - 每条路由可设置超时时间，超时返回 504，目标不通返回 502
-- **Web GUI** - 暗色主题管理面板，增删改查路由，实时生效
+- **Web GUI** - 暗色主题管理面板，增删改查路由与 upstream，实时生效
 - **配置热重载** - 修改配置文件自动生效，无需重启
 - **单文件部署** - Web 页面通过 `embed` 打包进二进制，无需额外文件
 - **请求日志** - 每次请求输出源地址、目标地址、状态码、耗时
@@ -52,14 +55,20 @@ cat > config.yaml << 'EOF'
 port: 7070
 routes:
   - path: /api
-    target: http://192.168.1.10:3000
     strip_prefix: true
     timeout: 10
+    upstreams:
+      - target: http://192.168.1.10:3000
+        weight: 3
+      - target: http://192.168.1.11:3000
+        weight: 1
+      - target: http://192.168.1.12:3000
+        backup: true
     headers:
       X-Api-Key: my-secret-key
-      Authorization: Bearer token123
   - path: /web
-    target: http://192.168.1.20:8080
+    upstreams:
+      - target: http://192.168.1.20:8080
     strip_prefix: false
 EOF
 
@@ -84,13 +93,50 @@ EOF
 
 路由格式：`路径=目标地址[:是否去除前缀]`
 
-示例：
-```bash
-# 去除前缀（默认）
-./go-proxy -route "/api=http://192.168.1.10:3000:true"
+## Upstream 负载均衡
 
-# 保留前缀
-./go-proxy -route "/api=http://192.168.1.10:3000:false"
+类似 nginx upstream 的配置方式：
+
+```yaml
+routes:
+  - path: /api
+    upstreams:
+      - target: http://10.0.0.1:3000
+        weight: 5          # 权重5，约71%流量
+      - target: http://10.0.0.2:3000
+        weight: 2          # 权重2，约29%流量
+      - target: http://10.0.0.3:3000
+        backup: true       # 仅在主节点全挂时启用
+```
+
+### 权重 (Weight)
+
+- 默认权重为 1（weight 为 0 或不设置时）
+- 权重越高，被选中的概率越大
+- 采用加权轮询（Weighted Round Robin）算法
+- 示例：权重 3:1 表示大约 75% 请求到节点1，25% 到节点2
+
+### 主备 (Backup)
+
+- 标记 `backup: true` 的节点为备用节点
+- 正常情况下不会接收流量
+- 仅当所有非 backup 节点都不可达时才启用
+- 当主节点恢复后，流量自动切回主节点
+
+### 故障转移流程
+
+```
+请求到来
+  ↓
+加权轮询选择主节点
+  ↓
+转发请求 → 成功 → 返回响应
+  ↓ 失败/超时
+自动切换到 backup 节点
+  ↓
+转发请求 → 成功 → 返回响应
+  ↓ 失败
+返回 502 Bad Gateway
 ```
 
 ## 配置文件
@@ -98,13 +144,19 @@ EOF
 支持 YAML 格式：
 
 ```yaml
-port: 7070                    # 代理监听端口
+port: 7070
 routes:
-  - path: /api                # 匹配路径前缀
-    target: http://192.168.1.10:3000  # 转发目标
-    strip_prefix: true        # 是否去除路径前缀
-    timeout: 10               # 超时时间（秒），0 或不填为默认 30s
-    headers:                  # 自定义请求头
+  - path: /api
+    strip_prefix: true
+    timeout: 10
+    upstreams:
+      - target: http://192.168.1.10:3000
+        weight: 3
+      - target: http://192.168.1.11:3000
+        weight: 1
+      - target: http://192.168.1.12:3000
+        backup: true
+    headers:
       X-Api-Key: my-secret
       Authorization: Bearer token
 ```
@@ -134,11 +186,10 @@ routes:
 
 - 查看所有路由规则
 - 添加 / 编辑 / 删除路由
+- 管理 Upstream 列表（添加、设置权重、标记备用）
 - 配置自定义 Headers
 - 设置超时时间
 - 修改后自动保存到配置文件
-
-![Web GUI](https://img.shields.io/badge/Web-GUI-blue)
 
 ## 配置热重载
 
@@ -157,10 +208,11 @@ vim config.yaml
 每次请求输出一行日志：
 
 ```
-[proxy] 192.168.1.5:12345 GET /api/users -> http://192.168.1.10:3000/users 200 12ms
-[proxy] 192.168.1.5:12346 GET /unknown -> 404 0ms (no route)
-[proxy] 192.168.1.5:12347 GET /down/test -> http://192.168.1.99:3000/test 502 5ms (connection refused)
-[proxy] 192.168.1.5:12348 GET /slow/test -> http://192.168.1.10:3000/test 504 10001ms (timeout)
+[proxy] 192.168.1.5:12345 GET /api/users -> http://10.0.0.1:3000/users 200 12ms
+[proxy] 192.168.1.5:12346 GET /api/users -> http://10.0.0.1:3000/users 502 5ms (connection refused) trying next upstream...
+[proxy] 192.168.1.5:12346 GET /api/users -> http://10.0.0.3:3000/users 200 15ms
+[proxy] 192.168.1.5:12347 GET /unknown -> 404 0ms (no route)
+[proxy] 192.168.1.5:12348 GET /slow/test -> http://10.0.0.1:3000/test 504 10001ms (timeout)
 ```
 
 ## 项目结构
@@ -170,11 +222,12 @@ vim config.yaml
 ├── cmd/go-proxy/main.go           # 程序入口
 ├── internal/
 │   ├── config/config.go           # 配置管理（线程安全、热重载）
-│   ├── proxy/proxy.go             # 反向代理核心
+│   ├── proxy/proxy.go             # 反向代理核心（负载均衡、故障转移）
 │   └── admin/
 │       ├── admin.go               # Web GUI API
 │       └── static/index.html      # Web GUI 前端（embed 打包）
 ├── build.sh                       # 多平台打包脚本
+├── .github/workflows/release.yml  # GitHub Actions 自动发布
 ├── go.mod
 ├── go.sum
 └── README.md
