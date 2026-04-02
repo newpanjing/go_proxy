@@ -219,6 +219,14 @@
                 <input type="number" id="port" min="1" max="65535" value="8080">
                 <button class="btn btn-primary btn-sm" onclick="saveConfig()">保存</button>
             </div>
+            <div class="config-row" style="margin-top:16px">
+                <label>输出请求参数</label>
+                <div class="toggle-row">
+                    <div class="toggle" id="log-params-toggle" onclick="toggleLogParams()"></div>
+                    <span id="log-params-label">否</span>
+                    <span style="color:#475569;font-size:0.75rem;margin-left:8px">开启后日志中会输出请求的 Query 参数</span>
+                </div>
+            </div>
             <div style="color: #475569; font-size: 0.8rem; margin-top: 8px;">
                 提示：修改端口后需要重启代理服务才能生效
             </div>
@@ -309,6 +317,7 @@
 
     <script>
         let stripPrefix = true;
+        let logRequestParams = false;
         let editUpstreams = [];
         let editHeaders = {};
 
@@ -405,6 +414,8 @@
             const resp = await fetch('/api/config');
             const cfg = await resp.json();
             document.getElementById('port').value = cfg.port || 8080;
+            logRequestParams = cfg.log_request_params || false;
+            updateLogParamsUI();
             renderRoutes(cfg.routes || []);
         }
 
@@ -463,7 +474,7 @@
             await fetch('/api/config', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({port, routes})
+                body: JSON.stringify({port, log_request_params: logRequestParams, routes})
             });
             toast('配置已保存（端口修改需重启生效）', 'success');
         }
@@ -512,6 +523,24 @@
         function toggleStrip() {
             stripPrefix = !stripPrefix;
             updateStripUI();
+        }
+
+        function toggleLogParams() {
+            logRequestParams = !logRequestParams;
+            updateLogParamsUI();
+            saveConfig();
+        }
+
+        function updateLogParamsUI() {
+            const el = document.getElementById('log-params-toggle');
+            const label = document.getElementById('log-params-label');
+            if (logRequestParams) {
+                el.classList.add('active');
+                label.textContent = '是';
+            } else {
+                el.classList.remove('active');
+                label.textContent = '否';
+            }
         }
 
         function updateStripUI() {

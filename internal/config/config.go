@@ -40,8 +40,9 @@ func (r *Route) ResolveUpstreams() []Upstream {
 }
 
 type Config struct {
-	Port   int     `json:"port" yaml:"port"`
-	Routes []Route `json:"routes" yaml:"routes"`
+	Port             int     `json:"port" yaml:"port"`
+	LogRequestParams bool    `json:"log_request_params" yaml:"log_request_params"`
+	Routes           []Route `json:"routes" yaml:"routes"`
 }
 
 type ConfigManager struct {
@@ -73,6 +74,12 @@ func (m *ConfigManager) SetPort(port int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.config.Port = port
+}
+
+func (m *ConfigManager) SetLogRequestParams(enabled bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.config.LogRequestParams = enabled
 }
 
 func (m *ConfigManager) SetRoutes(routes []Route) {

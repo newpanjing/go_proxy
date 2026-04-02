@@ -61,6 +61,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.mgr.SetPort(cfg.Port)
+		s.mgr.SetLogRequestParams(cfg.LogRequestParams)
 		s.mgr.SetRoutes(cfg.Routes)
 		_ = s.mgr.Save()
 		writeJSON(w, map[string]string{"status": "ok"})

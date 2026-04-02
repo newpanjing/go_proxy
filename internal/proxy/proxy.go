@@ -16,6 +16,50 @@ import (
 	"go-proxy/internal/config"
 )
 
+// ANSI color codes for terminal output
+const (
+	colorReset  = "\033[0m"
+	colorRed    = "\033[31m"
+	colorYellow = "\033[33m"
+	colorGreen  = "\033[32m"
+	colorCyan   = "\033[36m"
+	colorBlue   = "\033[34m"
+)
+
+// statusColor returns the ANSI color for a given HTTP status code.
+func statusColor(code int) string {
+	switch {
+	case code >= 500:
+		return colorRed
+	case code == 404:
+		return colorYellow
+	case code >= 400:
+		return colorYellow
+	case code >= 300:
+		return colorBlue
+	case code >= 200:
+		return colorGreen
+	default:
+		return colorReset
+	}
+}
+
+// logRequest logs a proxied request with colored output.
+func logRequest(src, method, path, target string, statusCode int, duration int64, queryParams string, logParams bool) {
+	statusStr := fmt.Sprintf("%s%d%s", statusColor(statusCode), statusCode, colorReset)
+	srcStr := fmt.Sprintf("%s%s%s", colorCyan, src, colorReset)
+	targetStr := fmt.Sprintf("%s%s%s", colorBlue, target, colorReset)
+	durStr := fmt.Sprintf("%s%dms%s", colorGreen, duration, colorReset)
+
+	var paramStr string
+	if logParams && queryParams != "" {
+		paramStr = fmt.Sprintf(" params=%s%s%s", colorYellow, queryParams, colorReset)
+	}
+
+	log.Printf("[proxy] %s %s %s -> %s %s %s%s",
+		srcStr, method, path, targetStr, statusStr, durStr, paramStr)
+}
+
 type Proxy struct {
 	mgr    *config.ConfigManager
 	logger *log.Logger
@@ -131,30 +175,30 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	rw.WriteHeader(http.StatusNotFound)
 	fmt.Fprintf(rw, `{"status":404,"message":"no matching route","path":"%s","hint":"check proxy config or visit admin GUI to add routes"}`, r.URL.Path)
-	log.Printf("[proxy] %s %s %s -> 404 %dms (no route)",
-		src, r.Method, r.URL.Path, time.Since(start).Milliseconds())
+	logRequest(src, r.Method, r.URL.Path, "", http.StatusNotFound, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 }
 
 func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config.Route, start time.Time, isRetry bool) {
 	src := r.RemoteAddr
+	cfg := p.mgr.Get()
 	upstreams := route.ResolveUpstreams()
 	if len(upstreams) == 0 {
 		http.Error(w, "no upstream configured", http.StatusBadGateway)
-		log.Printf("[proxy] %s %s %s -> 502 %dms (no upstream)", src, r.Method, r.URL.Path, time.Since(start).Milliseconds())
+		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
 
 	selected := selectUpstream(route.Path, upstreams, isRetry)
 	if selected == nil {
 		http.Error(w, "all upstreams exhausted", http.StatusBadGateway)
-		log.Printf("[proxy] %s %s %s -> 502 %dms (all upstreams exhausted)", src, r.Method, r.URL.Path, time.Since(start).Milliseconds())
+		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
 
 	targetURL, err := url.Parse(selected.Target)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("bad upstream target: %v", err), http.StatusBadGateway)
-		log.Printf("[proxy] %s %s %s -> 502 %dms (bad target %s: %v)", src, r.Method, r.URL.Path, time.Since(start).Milliseconds(), selected.Target, err)
+		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
 
@@ -214,19 +258,16 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	}
 
 	rp.ModifyResponse = func(resp *http.Response) error {
-		log.Printf("[proxy] %s %s %s -> %s%s %d %dms",
-			src, r.Method, r.URL.Path, selected.Target, forwardPath, resp.StatusCode, time.Since(start).Milliseconds())
+		logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, resp.StatusCode, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return nil
 	}
 
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if isTimeoutError(err) {
 			http.Error(w, fmt.Sprintf("gateway timeout: %v", err), http.StatusGatewayTimeout)
-			log.Printf("[proxy] %s %s %s -> %s%s 504 %dms (timeout: %v)",
-				src, r.Method, r.URL.Path, selected.Target, forwardPath, time.Since(start).Milliseconds(), err)
+			logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, http.StatusGatewayTimeout, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		} else {
-			log.Printf("[proxy] %s %s %s -> %s%s 502 %dms (%v) trying next upstream...",
-				src, r.Method, r.URL.Path, selected.Target, forwardPath, time.Since(start).Milliseconds(), err)
+			logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 			// Try backup if available and not already a retry
 			if !isRetry && hasBackup(upstreams) {
 				p.handleRoute(w, r, route, start, true)
