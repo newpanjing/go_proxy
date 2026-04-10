@@ -83,6 +83,30 @@ func main() {
 		fmt.Println("    (none)")
 	}
 	for _, r := range cfg.Routes {
+		if r.IsMock() {
+			mock := r.Mock
+			method := "ANY"
+			statusCode := 200
+			responseType := "application/json"
+			paramCount := 0
+			headerCount := 0
+			if mock != nil {
+				if mock.Method != "" {
+					method = mock.Method
+				}
+				if mock.StatusCode > 0 {
+					statusCode = mock.StatusCode
+				}
+				if mock.ResponseType != "" {
+					responseType = mock.ResponseType
+				}
+				paramCount = len(mock.Params)
+				headerCount = len(mock.Headers)
+			}
+			fmt.Printf("    %s -> mock %s priority=%d status=%d type=%s params=%d headers=%d\n", r.Path, method, r.Priority, statusCode, responseType, paramCount, headerCount)
+			continue
+		}
+
 		upstreams := r.ResolveUpstreams()
 		var parts []string
 		for _, u := range upstreams {
@@ -95,7 +119,7 @@ func main() {
 			}
 			parts = append(parts, s)
 		}
-		fmt.Printf("    %s -> %s (strip=%v)\n", r.Path, strings.Join(parts, ", "), r.StripPrefix)
+		fmt.Printf("    %s -> %s (priority=%d strip=%v)\n", r.Path, strings.Join(parts, ", "), r.Priority, r.StripPrefix)
 	}
 	fmt.Println()
 

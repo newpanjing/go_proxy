@@ -96,6 +96,28 @@
             color: #93c5fd;
             font-family: monospace;
         }
+        .mock-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 2px 8px;
+            margin: 2px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            background: #14b8a620;
+            color: #5eead4;
+            font-family: monospace;
+        }
+        .route-type-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .route-type-proxy { background: #3b82f620; color: #93c5fd; }
+        .route-type-mock { background: #14b8a620; color: #5eead4; }
+        .detail-stack { display: flex; flex-wrap: wrap; gap: 6px; }
         .empty-state { text-align: center; padding: 40px; color: #475569; }
         .form-overlay {
             display: none;
@@ -129,7 +151,24 @@
             color: #e2e8f0;
             font-size: 0.9rem;
         }
-        .form-group input:focus { outline: none; border-color: #3b82f6; }
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px 12px;
+            color: #e2e8f0;
+            font-size: 0.9rem;
+        }
+        .form-group textarea {
+            min-height: 140px;
+            resize: vertical;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .form-group input:focus,
+        .form-group select:focus,
+        .form-group textarea:focus { outline: none; border-color: #3b82f6; }
         .toggle-row { display: flex; align-items: center; gap: 12px; }
         .toggle {
             position: relative;
@@ -200,6 +239,38 @@
             padding: 4px 8px;
         }
         .upstream-label { color: #64748b; font-size: 0.75rem; text-align: center; }
+        .kv-list { margin-top: 8px; }
+        .kv-item {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .kv-item input {
+            background: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 8px 10px;
+            color: #e2e8f0;
+            font-size: 0.85rem;
+        }
+        .kv-item input:focus { outline: none; border-color: #3b82f6; }
+        .kv-item button {
+            background: none;
+            border: none;
+            color: #ef4444;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 4px 8px;
+        }
+        .form-section.hidden { display: none; }
+        .section-note {
+            color: #64748b;
+            font-size: 0.78rem;
+            margin-top: 6px;
+            line-height: 1.6;
+        }
         .section-divider {
             border: none;
             border-top: 1px solid #334155;
@@ -210,7 +281,7 @@
 <body>
     <div class="container">
         <h1>Go Proxy</h1>
-        <p class="subtitle">反向代理 & 负载均衡管理面板</p>
+        <p class="subtitle">反向代理、负载均衡与接口模拟管理面板</p>
 
         <div class="card">
             <h2>基本配置</h2>
@@ -241,8 +312,10 @@
                 <table>
                     <thead>
                         <tr>
+                            <th>类型</th>
                             <th>路径</th>
-                            <th>Upstream 列表</th>
+                            <th>优先级</th>
+                            <th>目标 / 模拟信息</th>
                             <th>去除前缀</th>
                             <th>超时</th>
                             <th>操作</th>
@@ -263,6 +336,8 @@
                 <p><strong style="color:#e2e8f0">去除前缀：</strong>开启后，转发时会去掉匹配的路径前缀</p>
                 <p><strong style="color:#e2e8f0">Upstream 权重：</strong>数字越大，被选中的概率越高（加权轮询）</p>
                 <p><strong style="color:#e2e8f0">Backup：</strong>标记为备用的节点，仅在所有主节点不可用时才启用</p>
+                <p><strong style="color:#e2e8f0">接口模拟：</strong>可录入 URL、请求参数、方法、响应头、响应类型与响应数据，命中后原样输出响应数据</p>
+                <p><strong style="color:#e2e8f0">路由优先级：</strong>数值越大越优先命中；同优先级保持当前配置顺序</p>
                 <p><strong style="color:#e2e8f0">示例：</strong>两个节点权重 3:1，则大约 75% 请求到节点1，25% 到节点2</p>
             </div>
         </div>
@@ -280,32 +355,99 @@
             </div>
 
             <div class="form-group">
-                <label>去除路径前缀（转发时不携带匹配的路径前缀）</label>
-                <div class="toggle-row">
-                    <div class="toggle active" id="strip-toggle" onclick="toggleStrip()"></div>
-                    <span id="strip-label">是</span>
+                <label>路由类型</label>
+                <select id="route-type" onchange="setRouteType(this.value)">
+                    <option value="proxy">反向代理</option>
+                    <option value="mock">接口模拟</option>
+                </select>
+                <div class="section-note">反向代理会转发到 upstream；接口模拟会直接返回固定 JSON 结构。</div>
+            </div>
+
+            <div class="form-group">
+                <label>优先级</label>
+                <input type="number" id="route-priority" value="0" placeholder="0">
+                <div class="section-note">数值越大越优先命中；默认 `0`。</div>
+            </div>
+
+            <div id="proxy-fields" class="form-section">
+                <div class="form-group">
+                    <label>去除路径前缀（转发时不携带匹配的路径前缀）</label>
+                    <div class="toggle-row">
+                        <div class="toggle active" id="strip-toggle" onclick="toggleStrip()"></div>
+                        <span id="strip-label">是</span>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>超时时间 <span style="color:#64748b;font-size:0.75rem">（秒，0 = 默认30s）</span></label>
+                    <input type="number" id="route-timeout" min="0" max="300" value="0" placeholder="30">
+                </div>
+
+                <hr class="section-divider">
+
+                <div class="form-group">
+                    <label>Upstream 列表 <span style="color:#64748b;font-size:0.75rem">（支持多个目标实现负载均衡，类似 nginx upstream）</span></label>
+                    <div class="upstream-list" id="upstreams-container"></div>
+                    <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addUpstreamRow()">+ 添加 Upstream</button>
+                </div>
+
+                <hr class="section-divider">
+
+                <div class="form-group">
+                    <label>自定义 Headers <span style="color:#64748b;font-size:0.75rem">（转发时附加的请求头）</span></label>
+                    <div id="headers-container"></div>
+                    <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addHeaderRow()">+ 添加 Header</button>
                 </div>
             </div>
 
-            <div class="form-group">
-                <label>超时时间 <span style="color:#64748b;font-size:0.75rem">（秒，0 = 默认30s）</span></label>
-                <input type="number" id="route-timeout" min="0" max="300" value="0" placeholder="30">
-            </div>
+            <div id="mock-fields" class="form-section hidden">
+                <div class="form-group">
+                    <label>请求方法</label>
+                    <select id="mock-method">
+                        <option value="ANY">ANY</option>
+                        <option value="GET">GET</option>
+                        <option value="POST">POST</option>
+                        <option value="PUT">PUT</option>
+                        <option value="PATCH">PATCH</option>
+                        <option value="DELETE">DELETE</option>
+                    </select>
+                </div>
 
-            <hr class="section-divider">
+                <div class="form-group">
+                    <label>请求参数 <span style="color:#64748b;font-size:0.75rem">（支持 Query、表单或 JSON Body 顶层字段匹配）</span></label>
+                    <div class="kv-list" id="mock-params-container"></div>
+                    <button type="button" class="btn btn-sm" style="background:#334155;color:#5eead4;margin-top:4px" onclick="addMockParamRow()">+ 添加参数</button>
+                </div>
 
-            <div class="form-group">
-                <label>Upstream 列表 <span style="color:#64748b;font-size:0.75rem">（支持多个目标实现负载均衡，类似 nginx upstream）</span></label>
-                <div class="upstream-list" id="upstreams-container"></div>
-                <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addUpstreamRow()">+ 添加 Upstream</button>
-            </div>
+                <div class="form-group">
+                    <label>HTTP 返回状态码</label>
+                    <input type="number" id="mock-status-code" min="100" max="599" value="200" placeholder="200">
+                </div>
 
-            <hr class="section-divider">
+                <div class="form-group">
+                    <label>响应类型 (Content-Type)</label>
+                    <select id="mock-response-type">
+                        <option value="application/json">application/json</option>
+                        <option value="text/plain">text/plain</option>
+                        <option value="text/html">text/html</option>
+                        <option value="text/xml">text/xml</option>
+                        <option value="application/xml">application/xml</option>
+                    </select>
+                </div>
 
-            <div class="form-group">
-                <label>自定义 Headers <span style="color:#64748b;font-size:0.75rem">（转发时附加的请求头）</span></label>
-                <div id="headers-container"></div>
-                <button type="button" class="btn btn-sm" style="background:#334155;color:#93c5fd;margin-top:4px" onclick="addHeaderRow()">+ 添加 Header</button>
+                <div class="form-group">
+                    <label>响应数据 <span style="color:#64748b;font-size:0.75rem">（JSON 格式，将原样输出）</span></label>
+                    <textarea id="mock-data" placeholder='{"ok": true}'></textarea>
+                    <div class="section-note">输入框中的 JSON 数据将原样输出到响应体中，不再额外包裹。</div>
+                </div>
+
+                <hr class="section-divider">
+
+                <div class="form-group">
+                    <label>自定义响应头 <span style="color:#64748b;font-size:0.75rem">（响应时附加的 HTTP 头）</span></label>
+                    <div id="mock-headers-container"></div>
+                    <button type="button" class="btn btn-sm" style="background:#334155;color:#5eead4;margin-top:4px" onclick="addMockHeaderRow()">+ 添加响应头</button>
+                </div>
             </div>
 
             <div class="form-actions">
@@ -317,11 +459,63 @@
 
     <script>
         let stripPrefix = true;
+        let routeType = 'proxy';
         let logRequestParams = false;
         let editUpstreams = [];
         let editHeaders = {};
+        let editMockParams = [];
+        let editMockHeaders = [];
 
-        // --- Upstream editor ---
+        function normalizeRouteType(type) {
+            return String(type || 'proxy').toLowerCase() === 'mock' ? 'mock' : 'proxy';
+        }
+
+        function esc(s) {
+            if (s == null) return '';
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
+        function compactStringMap(obj) {
+            const out = {};
+            Object.entries(obj || {}).forEach(([key, value]) => {
+                const trimmedKey = String(key || '').trim();
+                if (!trimmedKey) return;
+                out[trimmedKey] = String(value == null ? '' : value).trim();
+            });
+            return out;
+        }
+
+        function pairsToMap(pairs) {
+            const out = {};
+            (pairs || []).forEach(item => {
+                const key = String(item.key || '').trim();
+                if (!key) return;
+                out[key] = String(item.value == null ? '' : item.value).trim();
+            });
+            return out;
+        }
+
+        function prettyJSON(value, fallback) {
+            try {
+                return JSON.stringify(value == null ? fallback : value, null, 2);
+            } catch (e) {
+                return JSON.stringify(fallback, null, 2);
+            }
+        }
+
+        function setRouteType(type) {
+            routeType = normalizeRouteType(type);
+            document.getElementById('route-type').value = routeType;
+            updateRouteTypeUI();
+        }
+
+        function updateRouteTypeUI() {
+            document.getElementById('proxy-fields').classList.toggle('hidden', routeType !== 'proxy');
+            document.getElementById('mock-fields').classList.toggle('hidden', routeType !== 'mock');
+        }
+
         function renderUpstreamRows() {
             const c = document.getElementById('upstreams-container');
             if (editUpstreams.length === 0) {
@@ -336,12 +530,12 @@
                     </div>
                     <div>
                         <div class="upstream-label">权重</div>
-                        <input type="number" value="${u.weight||1}" min="1" max="100"
-                            onchange="editUpstreams[${i}].weight=parseInt(this.value)||1">
+                        <input type="number" value="${u.weight || 1}" min="1" max="100"
+                            onchange="editUpstreams[${i}].weight=parseInt(this.value, 10)||1">
                     </div>
                     <div style="text-align:center">
                         <div class="upstream-label">备用</div>
-                        <div class="toggle ${u.backup?'active':''}" onclick="editUpstreams[${i}].backup=!editUpstreams[${i}].backup;renderUpstreamRows()"></div>
+                        <div class="toggle ${u.backup ? 'active' : ''}" onclick="editUpstreams[${i}].backup=!editUpstreams[${i}].backup;renderUpstreamRows()"></div>
                     </div>
                     <button class="btn-remove" onclick="editUpstreams.splice(${i},1);renderUpstreamRows()">×</button>
                 </div>
@@ -349,11 +543,10 @@
         }
 
         function addUpstreamRow() {
-            editUpstreams.push({target:'', weight:1, backup:false});
+            editUpstreams.push({target: '', weight: 1, backup: false});
             renderUpstreamRows();
         }
 
-        // --- Header editor ---
         function renderHeaderRows() {
             const c = document.getElementById('headers-container');
             const keys = Object.keys(editHeaders);
@@ -362,24 +555,18 @@
                 return;
             }
             c.innerHTML = keys.map((k, i) => `
-                <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-                    <input style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:0.85rem"
-                        value="${esc(k)}" placeholder="Header名称"
-                        onchange="updateHeaderKey(${i},this.value)">
-                    <input style="flex:1;background:#0f172a;border:1px solid #334155;border-radius:8px;padding:8px 10px;color:#e2e8f0;font-size:0.85rem"
-                        value="${esc(editHeaders[k])}" placeholder="Header值"
-                        onchange="updateHeaderValue(${i},this.value)">
-                    <button style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:1.1rem;padding:4px 8px"
-                        onclick="removeHeader(${i})">×</button>
+                <div class="kv-item">
+                    <input value="${esc(k)}" placeholder="Header 名称" onchange="updateHeaderKey(${i}, this.value)">
+                    <input value="${esc(editHeaders[k])}" placeholder="Header 值" onchange="updateHeaderValue(${i}, this.value)">
+                    <button onclick="removeHeader(${i})">×</button>
                 </div>
             `).join('');
         }
 
         function addHeaderRow() {
-            let key = '', i = 1;
-            while (editHeaders.hasOwnProperty('X-Custom-' + i)) i++;
-            key = 'X-Custom-' + i;
-            editHeaders[key] = '';
+            let i = 1;
+            while (Object.prototype.hasOwnProperty.call(editHeaders, 'X-Custom-' + i)) i++;
+            editHeaders['X-Custom-' + i] = '';
             renderHeaderRows();
         }
 
@@ -387,17 +574,17 @@
             const keys = Object.keys(editHeaders);
             if (idx < keys.length) {
                 const oldKey = keys[idx];
-                const val = editHeaders[oldKey];
+                const value = editHeaders[oldKey];
                 delete editHeaders[oldKey];
-                editHeaders[newKey] = val;
+                editHeaders[newKey] = value;
             }
             renderHeaderRows();
         }
 
-        function updateHeaderValue(idx, val) {
+        function updateHeaderValue(idx, value) {
             const keys = Object.keys(editHeaders);
             if (idx < keys.length) {
-                editHeaders[keys[idx]] = val;
+                editHeaders[keys[idx]] = value;
             }
         }
 
@@ -409,7 +596,46 @@
             renderHeaderRows();
         }
 
-        // --- Config ---
+        function renderMockParamRows() {
+            const c = document.getElementById('mock-params-container');
+            if (editMockParams.length === 0) {
+                c.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">未配置参数限制，命中路径后将直接响应</div>';
+                return;
+            }
+            c.innerHTML = editMockParams.map((item, i) => `
+                <div class="kv-item">
+                    <input value="${esc(item.key)}" placeholder="参数名" onchange="editMockParams[${i}].key=this.value">
+                    <input value="${esc(item.value)}" placeholder="参数值" onchange="editMockParams[${i}].value=this.value">
+                    <button onclick="editMockParams.splice(${i},1);renderMockParamRows()">×</button>
+                </div>
+            `).join('');
+        }
+
+        function addMockParamRow() {
+            editMockParams.push({key: '', value: ''});
+            renderMockParamRows();
+        }
+
+        function renderMockHeaderRows() {
+            const c = document.getElementById('mock-headers-container');
+            if (editMockHeaders.length === 0) {
+                c.innerHTML = '<div style="color:#475569;font-size:0.8rem;margin-bottom:4px">暂无自定义响应头</div>';
+                return;
+            }
+            c.innerHTML = editMockHeaders.map((item, i) => `
+                <div class="kv-item">
+                    <input value="${esc(item.key)}" placeholder="Header 名称" onchange="editMockHeaders[${i}].key=this.value">
+                    <input value="${esc(item.value)}" placeholder="Header 值" onchange="editMockHeaders[${i}].value=this.value">
+                    <button onclick="editMockHeaders.splice(${i},1);renderMockHeaderRows()">×</button>
+                </div>
+            `).join('');
+        }
+
+        function addMockHeaderRow() {
+            editMockHeaders.push({key: '', value: ''});
+            renderMockHeaderRows();
+        }
+
         async function loadConfig() {
             const resp = await fetch('/api/config');
             const cfg = await resp.json();
@@ -417,6 +643,47 @@
             logRequestParams = cfg.log_request_params || false;
             updateLogParamsUI();
             renderRoutes(cfg.routes || []);
+        }
+
+        function renderProxySummary(route) {
+            const upstreams = route.upstreams || [];
+            const legacyTarget = route.target || '';
+            if (upstreams.length > 0) {
+                return upstreams.map(u => {
+                    let badges = '';
+                    if (u.backup) badges += '<span class="badge badge-backup">备用</span>';
+                    if ((u.weight || 1) > 1) badges += `<span class="badge badge-weight">w=${u.weight}</span>`;
+                    return `<div class="upstream-tag">${esc(u.target)} ${badges}</div>`;
+                }).join('');
+            }
+            if (legacyTarget) {
+                return `<div class="upstream-tag">${esc(legacyTarget)}</div>`;
+            }
+            return '<span style="color:#475569">-</span>';
+        }
+
+        function renderMockSummary(mock) {
+            const params = Object.entries((mock && mock.params) || {});
+            const method = (mock && mock.method) || 'ANY';
+            const statusCode = (mock && mock.status_code) || 200;
+            const responseType = (mock && mock.response_type) || 'application/json';
+            const headers = Object.entries((mock && mock.headers) || {});
+            const paramHtml = params.length
+                ? params.map(([key, value]) => `<div class="mock-tag">${esc(key)}=${esc(value)}</div>`).join('')
+                : '';
+            const headerHtml = headers.length
+                ? headers.map(([key, value]) => `<div class="mock-tag">${esc(key)}: ${esc(value)}</div>`).join('')
+                : '';
+
+            return `
+                <div class="detail-stack">
+                    <div class="mock-tag">${esc(method)}</div>
+                    <div class="mock-tag">HTTP ${statusCode}</div>
+                    <div class="mock-tag">${esc(responseType)}</div>
+                    ${paramHtml}
+                    ${headerHtml}
+                </div>
+            `;
         }
 
         function renderRoutes(routes) {
@@ -427,49 +694,38 @@
                 empty.style.display = 'block';
                 return;
             }
-            empty.style.display = 'none';
-            tbody.innerHTML = routes.map(r => {
-                const upstreams = r.upstreams || [];
-                const legacyTarget = r.target || '';
-                const timeoutText = r.timeout > 0 ? r.timeout + 's' : '默认';
 
-                let upsHtml = '';
-                if (upstreams.length > 0) {
-                    upsHtml = upstreams.map(u => {
-                        let badges = '';
-                        if (u.backup) badges += '<span class="badge badge-backup">备用</span>';
-                        if (u.weight > 1) badges += `<span class="badge badge-weight">w=${u.weight}</span>`;
-                        return `<div class="upstream-tag">${esc(u.target)} ${badges}</div>`;
-                    }).join('');
-                } else if (legacyTarget) {
-                    upsHtml = `<div class="upstream-tag">${esc(legacyTarget)}</div>`;
-                } else {
-                    upsHtml = '<span style="color:#475569">-</span>';
-                }
+            empty.style.display = 'none';
+            tbody.innerHTML = routes.map(route => {
+                const type = normalizeRouteType(route.type);
+                const encodedRoute = encodeURIComponent(JSON.stringify(route));
+                const encodedPath = encodeURIComponent(route.path || '');
+                const stripHtml = type === 'mock'
+                    ? '<span style="color:#475569">-</span>'
+                    : `<span class="badge ${route.strip_prefix ? 'badge-yes' : 'badge-no'}">${route.strip_prefix ? '是' : '否'}</span>`;
+                const timeoutText = type === 'mock' ? '-' : (route.timeout > 0 ? route.timeout + 's' : '默认');
+                const detailHtml = type === 'mock' ? renderMockSummary(route.mock || {}) : renderProxySummary(route);
+                const typeLabel = type === 'mock' ? '接口模拟' : '反向代理';
 
                 return `
-                <tr>
-                    <td><code style="color:#60a5fa">${esc(r.path)}</code></td>
-                    <td>${upsHtml}</td>
-                    <td><span class="badge ${r.strip_prefix ? 'badge-yes' : 'badge-no'}">${r.strip_prefix ? '是' : '否'}</span></td>
-                    <td>${timeoutText}</td>
-                    <td>
-                        <button class="btn btn-primary btn-sm" onclick='editRoute(${JSON.stringify(r)})'>编辑</button>
-                        <button class="btn btn-danger btn-sm" onclick="deleteRoute('${esc(r.path)}')">删除</button>
-                    </td>
-                </tr>`;
+                    <tr>
+                        <td><span class="route-type-badge route-type-${type}">${typeLabel}</span></td>
+                        <td><code style="color:#60a5fa">${esc(route.path)}</code></td>
+                        <td><span class="badge badge-weight">${route.priority || 0}</span></td>
+                        <td>${detailHtml}</td>
+                        <td>${stripHtml}</td>
+                        <td>${timeoutText}</td>
+                        <td>
+                            <button class="btn btn-primary btn-sm" onclick="editRouteFromEncoded('${encodedRoute}')">编辑</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteRouteByEncoded('${encodedPath}')">删除</button>
+                        </td>
+                    </tr>
+                `;
             }).join('');
         }
 
-        function esc(s) {
-            if (s == null) return '';
-            const d = document.createElement('div');
-            d.textContent = String(s);
-            return d.innerHTML;
-        }
-
         async function saveConfig() {
-            const port = parseInt(document.getElementById('port').value);
+            const port = parseInt(document.getElementById('port').value, 10);
             const routes = (await (await fetch('/api/config')).json()).routes || [];
             await fetch('/api/config', {
                 method: 'PUT',
@@ -479,40 +735,72 @@
             toast('配置已保存（端口修改需重启生效）', 'success');
         }
 
-        function showAddForm() {
-            document.getElementById('form-title').textContent = '添加路由';
+        function resetRouteForm() {
             document.getElementById('original-path').value = '';
             document.getElementById('route-path').value = '';
+            document.getElementById('route-priority').value = '0';
             document.getElementById('route-timeout').value = '0';
+            document.getElementById('mock-method').value = 'ANY';
+            document.getElementById('mock-status-code').value = '200';
+            document.getElementById('mock-response-type').value = 'application/json';
+            document.getElementById('mock-data').value = prettyJSON({ok: true}, {ok: true});
+
             stripPrefix = true;
             editUpstreams = [{target: '', weight: 1, backup: false}];
             editHeaders = {};
+            editMockParams = [];
+            editMockHeaders = [];
+            setRouteType('proxy');
             updateStripUI();
             renderUpstreamRows();
             renderHeaderRows();
+            renderMockParamRows();
+            renderMockHeaderRows();
+        }
+
+        function showAddForm() {
+            document.getElementById('form-title').textContent = '添加路由';
+            resetRouteForm();
             document.getElementById('form-overlay').classList.add('active');
         }
 
-        function editRoute(route) {
-            document.getElementById('form-title').textContent = '编辑路由';
-            document.getElementById('original-path').value = route.path;
-            document.getElementById('route-path').value = route.path;
-            document.getElementById('route-timeout').value = route.timeout || 0;
-            stripPrefix = route.strip_prefix;
+        function editRouteFromEncoded(encoded) {
+            editRoute(JSON.parse(decodeURIComponent(encoded)));
+        }
 
-            // Build upstreams from route
+        function editRoute(route) {
+            const type = normalizeRouteType(route.type);
+            document.getElementById('form-title').textContent = '编辑路由';
+            document.getElementById('original-path').value = route.path || '';
+            document.getElementById('route-path').value = route.path || '';
+            document.getElementById('route-priority').value = route.priority || 0;
+
+            stripPrefix = !!route.strip_prefix;
+            editHeaders = Object.assign({}, route.headers || {});
+
             if (route.upstreams && route.upstreams.length > 0) {
-                editUpstreams = route.upstreams.map(u => ({...u}));
+                editUpstreams = route.upstreams.map(item => ({...item}));
             } else if (route.target) {
                 editUpstreams = [{target: route.target, weight: 1, backup: false}];
             } else {
                 editUpstreams = [];
             }
 
-            editHeaders = Object.assign({}, route.headers || {});
+            const mock = route.mock || {};
+            editMockParams = Object.entries(mock.params || {}).map(([key, value]) => ({key, value}));
+            editMockHeaders = Object.entries(mock.headers || {}).map(([key, value]) => ({key, value}));
+            document.getElementById('mock-method').value = mock.method || 'ANY';
+            document.getElementById('mock-status-code').value = mock.status_code || 200;
+            document.getElementById('mock-response-type').value = mock.response_type || 'application/json';
+            document.getElementById('mock-data').value = prettyJSON(mock.data, {});
+            document.getElementById('route-timeout').value = route.timeout || 0;
+
+            setRouteType(type);
             updateStripUI();
             renderUpstreamRows();
             renderHeaderRows();
+            renderMockParamRows();
+            renderMockHeaderRows();
             document.getElementById('form-overlay').classList.add('active');
         }
 
@@ -555,6 +843,63 @@
             }
         }
 
+        function buildMockRoute(path) {
+            const priority = parseInt(document.getElementById('route-priority').value, 10) || 0;
+            const statusCode = parseInt(document.getElementById('mock-status-code').value, 10) || 200;
+            if (statusCode < 100 || statusCode > 599) {
+                throw new Error('HTTP 返回状态码需在 100-599 之间');
+            }
+
+            const rawData = document.getElementById('mock-data').value.trim();
+            let payload = {};
+            if (rawData) {
+                try {
+                    payload = JSON.parse(rawData);
+                } catch (e) {
+                    throw new Error('响应数据必须是合法 JSON');
+                }
+            }
+
+            return {
+                path,
+                priority,
+                type: 'mock',
+                mock: {
+                    method: document.getElementById('mock-method').value || 'ANY',
+                    params: pairsToMap(editMockParams),
+                    status_code: statusCode,
+                    response_type: document.getElementById('mock-response-type').value || 'application/json',
+                    headers: pairsToMap(editMockHeaders),
+                    data: payload
+                }
+            };
+        }
+
+        function buildProxyRoute(path) {
+            const priority = parseInt(document.getElementById('route-priority').value, 10) || 0;
+            const validUpstreams = editUpstreams
+                .filter(item => String(item.target || '').trim() !== '')
+                .map(item => {
+                    let target = String(item.target).trim();
+                    if (!/^https?:\/\//.test(target)) target = 'http://' + target;
+                    return {target, weight: item.weight || 1, backup: item.backup || false};
+                });
+
+            if (validUpstreams.length === 0) {
+                throw new Error('请添加至少一个 Upstream');
+            }
+
+            return {
+                path,
+                priority,
+                type: 'proxy',
+                strip_prefix: stripPrefix,
+                timeout: parseInt(document.getElementById('route-timeout').value, 10) || 0,
+                upstreams: validUpstreams,
+                headers: compactStringMap(editHeaders)
+            };
+        }
+
         async function saveRoute() {
             const path = document.getElementById('route-path').value.trim();
             const originalPath = document.getElementById('original-path').value;
@@ -563,52 +908,47 @@
                 toast('请填写路径', 'error');
                 return;
             }
-
-            // Validate upstreams
-            const validUpstreams = editUpstreams
-                .filter(u => u.target.trim() !== '')
-                .map(u => {
-                    let t = u.target.trim();
-                    if (!/^https?:\/\//.test(t)) t = 'http://' + t;
-                    return {target: t, weight: u.weight || 1, backup: u.backup || false};
-                });
-
-            if (validUpstreams.length === 0) {
-                toast('请添加至少一个 Upstream', 'error');
+            if (!path.startsWith('/')) {
+                toast('路径必须以 / 开头', 'error');
                 return;
             }
 
-            const timeout = parseInt(document.getElementById('route-timeout').value) || 0;
-            const route = {
-                path,
-                strip_prefix: stripPrefix,
-                timeout,
-                upstreams: validUpstreams,
-                headers: editHeaders
-            };
+            let route;
+            try {
+                route = routeType === 'mock' ? buildMockRoute(path) : buildProxyRoute(path);
+            } catch (e) {
+                toast(e.message || String(e), 'error');
+                return;
+            }
 
-            hideForm();
-
+            let resp;
             if (originalPath) {
-                const resp = await fetch('/api/routes/update', {
+                resp = await fetch('/api/routes/update', {
                     method: 'PUT',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({original_path: originalPath, route})
                 });
-                const result = await resp.json();
-                if (result.error) { toast(result.error, 'error'); return; }
-                toast('路由已更新', 'success');
             } else {
-                const resp = await fetch('/api/routes/add', {
+                resp = await fetch('/api/routes/add', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(route)
                 });
-                const result = await resp.json();
-                if (result.error) { toast(result.error, 'error'); return; }
-                toast('路由已添加', 'success');
             }
+
+            const result = await resp.json();
+            if (result.error) {
+                toast(result.error, 'error');
+                return;
+            }
+
+            hideForm();
+            toast(originalPath ? '路由已更新' : '路由已添加', 'success');
             loadConfig();
+        }
+
+        function deleteRouteByEncoded(encodedPath) {
+            deleteRoute(decodeURIComponent(encodedPath));
         }
 
         async function deleteRoute(path) {
@@ -634,6 +974,7 @@
             if (e.target === this) hideForm();
         });
 
+        resetRouteForm();
         loadConfig();
     </script>
 </body>

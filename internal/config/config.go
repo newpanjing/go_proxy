@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,21 +16,41 @@ import (
 
 type Upstream struct {
 	Target string `json:"target" yaml:"target"`
-	Weight int    `json:"weight" yaml:"weight"`  // 0 or 1 = equal, >1 = higher chance
-	Backup bool   `json:"backup" yaml:"backup"`  // only used when all non-backup are down
+	Weight int    `json:"weight" yaml:"weight"` // 0 or 1 = equal, >1 = higher chance
+	Backup bool   `json:"backup" yaml:"backup"` // only used when all non-backup are down
+}
+
+const (
+	RouteTypeProxy = "proxy"
+	RouteTypeMock  = "mock"
+)
+
+type MockConfig struct {
+	Method       string            `json:"method,omitempty" yaml:"method,omitempty"`
+	Params       map[string]string `json:"params,omitempty" yaml:"params,omitempty"`
+	StatusCode   int               `json:"status_code,omitempty" yaml:"status_code,omitempty"`
+	ResponseType string            `json:"response_type,omitempty" yaml:"response_type,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty" yaml:"headers,omitempty"`
+	Data         interface{}       `json:"data,omitempty" yaml:"data,omitempty"`
 }
 
 type Route struct {
 	Path        string            `json:"path" yaml:"path"`
+	Priority    int               `json:"priority" yaml:"priority"`
+	Type        string            `json:"type,omitempty" yaml:"type,omitempty"`
 	Target      string            `json:"target,omitempty" yaml:"target,omitempty"` // legacy single target
 	Upstreams   []Upstream        `json:"upstreams" yaml:"upstreams"`
 	StripPrefix bool              `json:"strip_prefix" yaml:"strip_prefix"`
 	Headers     map[string]string `json:"headers" yaml:"headers"`
 	Timeout     int               `json:"timeout" yaml:"timeout"`
+	Mock        *MockConfig       `json:"mock,omitempty" yaml:"mock,omitempty"`
 }
 
 // ResolveUpstreams returns the effective upstream list.
 func (r *Route) ResolveUpstreams() []Upstream {
+	if r.IsMock() {
+		return nil
+	}
 	if len(r.Upstreams) > 0 {
 		return r.Upstreams
 	}
@@ -37,6 +58,17 @@ func (r *Route) ResolveUpstreams() []Upstream {
 		return []Upstream{{Target: r.Target, Weight: 1}}
 	}
 	return nil
+}
+
+func (r Route) EffectiveType() string {
+	if strings.TrimSpace(r.Type) == "" {
+		return RouteTypeProxy
+	}
+	return strings.ToLower(strings.TrimSpace(r.Type))
+}
+
+func (r Route) IsMock() bool {
+	return r.EffectiveType() == RouteTypeMock
 }
 
 type Config struct {
@@ -85,12 +117,14 @@ func (m *ConfigManager) SetLogRequestParams(enabled bool) {
 func (m *ConfigManager) SetRoutes(routes []Route) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	normalizeRoutes(routes)
 	m.config.Routes = routes
 }
 
 func (m *ConfigManager) AddRoute(route Route) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	normalizeRoute(&route)
 	for _, r := range m.config.Routes {
 		if r.Path == route.Path {
 			return fmt.Errorf("route with path %q already exists", route.Path)
@@ -103,6 +137,7 @@ func (m *ConfigManager) AddRoute(route Route) error {
 func (m *ConfigManager) UpdateRoute(originalPath string, route Route) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	normalizeRoute(&route)
 	for i, r := range m.config.Routes {
 		if r.Path == originalPath {
 			m.config.Routes[i] = route
@@ -231,9 +266,89 @@ func (m *ConfigManager) loadFromFile() error {
 	if cfg.Routes == nil {
 		cfg.Routes = []Route{}
 	}
+	normalizeRoutes(cfg.Routes)
 
 	m.mu.Lock()
 	m.config = cfg
 	m.mu.Unlock()
 	return nil
+}
+
+func normalizeRoutes(routes []Route) {
+	for i := range routes {
+		normalizeRoute(&routes[i])
+	}
+}
+
+func normalizeRoute(route *Route) {
+	route.Type = route.EffectiveType()
+	if route.Headers == nil {
+		route.Headers = map[string]string{}
+	}
+
+	if route.IsMock() {
+		if route.Mock == nil {
+			route.Mock = &MockConfig{}
+		}
+		normalizeMock(route.Mock)
+		route.Target = ""
+		route.Upstreams = nil
+		route.Headers = nil
+		route.Timeout = 0
+		route.StripPrefix = false
+		return
+	}
+
+	route.Type = RouteTypeProxy
+	route.Mock = nil
+	if route.Upstreams == nil {
+		route.Upstreams = []Upstream{}
+	}
+}
+
+func normalizeMock(mock *MockConfig) {
+	mock.Method = strings.ToUpper(strings.TrimSpace(mock.Method))
+	if mock.Method == "" {
+		mock.Method = "ANY"
+	}
+	if mock.Params == nil {
+		mock.Params = map[string]string{}
+	}
+	if mock.StatusCode == 0 {
+		mock.StatusCode = 200
+	}
+	if strings.TrimSpace(mock.ResponseType) == "" {
+		mock.ResponseType = "application/json"
+	}
+	if mock.Headers == nil {
+		mock.Headers = map[string]string{}
+	}
+	mock.Data = normalizeGenericValue(mock.Data)
+}
+
+func normalizeGenericValue(v interface{}) interface{} {
+	switch val := v.(type) {
+	case nil:
+		return map[string]interface{}{}
+	case map[string]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, item := range val {
+			out[k] = normalizeGenericValue(item)
+		}
+		return out
+	case map[interface{}]interface{}:
+		out := make(map[string]interface{}, len(val))
+		for k, item := range val {
+			out[fmt.Sprint(k)] = normalizeGenericValue(item)
+		}
+		return out
+	case []interface{}:
+		out := make([]interface{}, len(val))
+		for i, item := range val {
+			out[i] = normalizeGenericValue(item)
+		}
+		return out
+	default:
+		return val
+	}
 }

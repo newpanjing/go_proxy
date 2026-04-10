@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -164,11 +166,9 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	src := r.RemoteAddr
 	cfg := p.mgr.Get()
 
-	for _, route := range cfg.Routes {
-		if strings.HasPrefix(r.URL.Path, route.Path) {
-			p.handleRoute(w, r, route, start, false)
-			return
-		}
+	if route, ok := selectMatchingRoute(cfg.Routes, r.URL.Path); ok {
+		p.handleMatchedRoute(w, r, route, start)
+		return
 	}
 
 	rw := &responseWriter{ResponseWriter: w, status: 200}
@@ -176,6 +176,34 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rw.WriteHeader(http.StatusNotFound)
 	fmt.Fprintf(rw, `{"status":404,"message":"no matching route","path":"%s","hint":"check proxy config or visit admin GUI to add routes"}`, r.URL.Path)
 	logRequest(src, r.Method, r.URL.Path, "", http.StatusNotFound, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
+}
+
+func selectMatchingRoute(routes []config.Route, path string) (config.Route, bool) {
+	bestIdx := -1
+	bestPriority := 0
+
+	for i, route := range routes {
+		if !strings.HasPrefix(path, route.Path) {
+			continue
+		}
+		if bestIdx == -1 || route.Priority > bestPriority {
+			bestIdx = i
+			bestPriority = route.Priority
+		}
+	}
+
+	if bestIdx == -1 {
+		return config.Route{}, false
+	}
+	return routes[bestIdx], true
+}
+
+func (p *Proxy) handleMatchedRoute(w http.ResponseWriter, r *http.Request, route config.Route, start time.Time) {
+	if route.IsMock() {
+		p.handleMockRoute(w, r, route, start)
+		return
+	}
+	p.handleRoute(w, r, route, start, false)
 }
 
 func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config.Route, start time.Time, isRetry bool) {
@@ -278,6 +306,154 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	}
 
 	rp.ServeHTTP(w, r)
+}
+
+func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route config.Route, start time.Time) {
+	src := r.RemoteAddr
+	cfg := p.mgr.Get()
+	target := "mock://" + route.Path
+	mock := route.Mock
+	if mock == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    50001,
+			"message": "mock route misconfigured",
+			"data": map[string]interface{}{
+				"path": route.Path,
+			},
+		})
+		logRequest(src, r.Method, r.URL.Path, target, http.StatusInternalServerError, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
+		return
+	}
+
+	method := strings.ToUpper(strings.TrimSpace(mock.Method))
+	if method == "" {
+		method = "ANY"
+	}
+	if method != "ANY" && r.Method != method {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    40501,
+			"message": "mock method mismatch",
+			"data": map[string]interface{}{
+				"expected_method": method,
+				"actual_method":   r.Method,
+				"path":            r.URL.Path,
+			},
+		})
+		logRequest(src, r.Method, r.URL.Path, target, http.StatusMethodNotAllowed, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
+		return
+	}
+
+	requestParams := collectRequestParams(r)
+	if mismatch := findMockParamMismatch(mock.Params, requestParams); len(mismatch) > 0 {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"code":    40001,
+			"message": "mock params mismatch",
+			"data": map[string]interface{}{
+				"expected_params": mock.Params,
+				"actual_params":   requestParams,
+				"mismatch":        mismatch,
+				"path":            r.URL.Path,
+			},
+		})
+		logRequest(src, r.Method, r.URL.Path, target, http.StatusBadRequest, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
+		return
+	}
+
+	statusCode := mock.StatusCode
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+
+	// Set response type
+	contentType := strings.TrimSpace(mock.ResponseType)
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	w.Header().Set("Content-Type", contentType)
+
+	// Set custom response headers
+	for k, v := range mock.Headers {
+		w.Header().Set(k, v)
+	}
+
+	w.Header().Set("X-Go-Proxy-Mock", "true")
+	w.WriteHeader(statusCode)
+
+	// Output raw data as-is
+	if mock.Data != nil {
+		_ = json.NewEncoder(w).Encode(mock.Data)
+	}
+
+	logRequest(src, r.Method, r.URL.Path, target, statusCode, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
+}
+
+func collectRequestParams(r *http.Request) map[string]string {
+	params := make(map[string]string)
+
+	for key, values := range r.URL.Query() {
+		params[key] = strings.Join(values, ",")
+	}
+
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	switch {
+	case strings.Contains(contentType, "application/json"):
+		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err == nil && len(strings.TrimSpace(string(body))) > 0 {
+			var payload map[string]interface{}
+			if err := json.Unmarshal(body, &payload); err == nil {
+				for key, value := range payload {
+					params[key] = stringifyParam(value)
+				}
+			} else {
+				params["_body"] = string(body)
+			}
+		}
+	case strings.Contains(contentType, "application/x-www-form-urlencoded"),
+		strings.Contains(contentType, "multipart/form-data"):
+		if err := r.ParseForm(); err == nil {
+			for key, values := range r.PostForm {
+				params[key] = strings.Join(values, ",")
+			}
+		}
+	}
+
+	return params
+}
+
+func stringifyParam(v interface{}) string {
+	switch val := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return val
+	case bool, float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return fmt.Sprint(val)
+	default:
+		data, err := json.Marshal(val)
+		if err != nil {
+			return fmt.Sprint(val)
+		}
+		return string(data)
+	}
+}
+
+func findMockParamMismatch(expected, actual map[string]string) map[string]string {
+	mismatch := make(map[string]string)
+	for key, value := range expected {
+		if actual[key] != value {
+			mismatch[key] = fmt.Sprintf("expected=%q actual=%q", value, actual[key])
+		}
+	}
+	return mismatch
 }
 
 func hasBackup(upstreams []config.Upstream) bool {
