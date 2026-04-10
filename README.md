@@ -1,6 +1,6 @@
 # Go Proxy
 
-一个轻量级的反向代理 & 负载均衡工具，提供 Web GUI 管理界面，支持 upstream 负载均衡、权重、主备、路径路由、自定义 Headers、超时控制、配置热重载等功能。
+一个轻量级的反向代理 & 负载均衡工具，提供 Web GUI 管理界面，支持 upstream 负载均衡、权重、主备、路径路由、自定义 Headers、超时控制、接口模拟、配置热重载等功能。
 
 ## 预览
 
@@ -13,8 +13,10 @@
 - **权重分配** - 每个 upstream 可设置权重，权重越高被选中概率越大
 - **主备切换** - 标记为 backup 的节点仅在主节点全部不可用时启用
 - **去除前缀** - 可配置转发时是否去掉路径前缀（`strip_prefix`）
+- **路由优先级** - 每条路由可设置 `priority`，数值越大越优先匹配
 - **自定义 Headers** - 每条路由可配置自定义请求头
 - **超时控制** - 每条路由可设置超时时间，超时返回 504，目标不通返回 502
+- **接口模拟** - 可按 URL、方法和请求参数匹配，直接返回固定 JSON 格式响应
 - **Web GUI** - 暗色主题管理面板，增删改查路由与 upstream，实时生效
 - **配置热重载** - 修改配置文件自动生效，无需重启
 - **单文件部署** - Web 页面通过 `embed` 打包进二进制，无需额外文件
@@ -55,6 +57,7 @@ cat > config.yaml << 'EOF'
 port: 7070
 routes:
   - path: /api
+    priority: 100
     strip_prefix: true
     timeout: 10
     upstreams:
@@ -66,6 +69,18 @@ routes:
         backup: true
     headers:
       X-Api-Key: my-secret-key
+  - path: /mock/user
+    priority: 200
+    type: mock
+    mock:
+      method: POST
+      params:
+        id: "42"
+        name: demo
+      status_code: 200
+      message: ok
+      data:
+        user_id: u-001
   - path: /web
     upstreams:
       - target: http://192.168.1.20:8080
@@ -100,6 +115,7 @@ EOF
 ```yaml
 routes:
   - path: /api
+    priority: 100
     upstreams:
       - target: http://10.0.0.1:3000
         weight: 5          # 权重5，约71%流量
@@ -147,6 +163,7 @@ routes:
 port: 7070
 routes:
   - path: /api
+    priority: 100
     strip_prefix: true
     timeout: 10
     upstreams:
@@ -159,11 +176,26 @@ routes:
     headers:
       X-Api-Key: my-secret
       Authorization: Bearer token
+  - path: /mock/order
+    priority: 200
+    type: mock
+    mock:
+      method: GET
+      params:
+        order_id: "1001"
+      status_code: 200
+      message: mock success
+      data:
+        status: paid
+        amount: 99.5
 ```
 
 ### 路径匹配规则
 
 请求路径以配置的路径**前缀匹配**，匹配后转发到目标地址。
+
+- 支持 `priority`，数值越大越优先命中
+- 同优先级下保持配置中的原有顺序
 
 | 配置路径 | strip_prefix | 请求路径 | 转发到 |
 |---------|-------------|---------|-------|
@@ -176,6 +208,7 @@ routes:
 | 状态码 | 说明 |
 |-------|------|
 | `200` | 正常转发，后端响应成功 |
+| `2xx/4xx/5xx` | 模拟接口可自定义 HTTP 返回码，响应体固定为 `code/message/data` |
 | `404` | 无匹配路由 |
 | `502` | 目标地址不可达（连接拒绝等） |
 | `504` | 请求超时 |
@@ -187,6 +220,8 @@ routes:
 - 查看所有路由规则
 - 添加 / 编辑 / 删除路由
 - 管理 Upstream 列表（添加、设置权重、标记备用）
+- 设置路由优先级
+- 新增接口模拟（URL、方法、请求参数、响应消息、响应 JSON）
 - 配置自定义 Headers
 - 设置超时时间
 - 修改后自动保存到配置文件
