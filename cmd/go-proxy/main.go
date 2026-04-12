@@ -3,15 +3,20 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
+	"os"
 	"strings"
 
 	"go-proxy/internal/admin"
 	"go-proxy/internal/config"
+	"go-proxy/internal/logstream"
 	"go-proxy/internal/proxy"
 )
 
 func main() {
+	log.SetOutput(io.MultiWriter(os.Stderr, logstream.NewWriter(logstream.Default)))
+
 	port := flag.Int("port", 0, "proxy listen port (default from config or 8080)")
 	configFile := flag.String("config", "config.yaml", "config file path")
 	adminPort := flag.Int("admin-port", 0, "admin web GUI port (default: proxy port + 1)")
@@ -120,6 +125,33 @@ func main() {
 			parts = append(parts, s)
 		}
 		fmt.Printf("    %s -> %s (priority=%d strip=%v)\n", r.Path, strings.Join(parts, ", "), r.Priority, r.StripPrefix)
+	}
+	fmt.Println()
+
+	fmt.Println("  TCP Routes:")
+	if len(cfg.TcpRoutes) == 0 {
+		fmt.Println("    (none)")
+	}
+	for _, r := range cfg.TcpRoutes {
+		var parts []string
+		for _, u := range r.Upstreams {
+			s := u.Target
+			if u.Weight > 1 {
+				s += fmt.Sprintf(" w=%d", u.Weight)
+			}
+			if u.Backup {
+				s += " (backup)"
+			}
+			if !u.Enabled {
+				s += " (disabled)"
+			}
+			parts = append(parts, s)
+		}
+		enabled := ""
+		if !r.Enabled {
+			enabled = " [disabled]"
+		}
+		fmt.Printf("    %s -> %s%s\n", r.Listen, strings.Join(parts, ", "), enabled)
 	}
 	fmt.Println()
 

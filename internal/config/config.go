@@ -15,14 +15,19 @@ import (
 )
 
 type Upstream struct {
-	Target string `json:"target" yaml:"target"`
-	Weight int    `json:"weight" yaml:"weight"` // 0 or 1 = equal, >1 = higher chance
-	Backup bool   `json:"backup" yaml:"backup"` // only used when all non-backup are down
+	Target  string `json:"target" yaml:"target"`
+	Weight  int    `json:"weight" yaml:"weight"`   // 0 or 1 = equal, >1 = higher chance
+	Backup  bool   `json:"backup" yaml:"backup"`   // only used when all non-backup are down
+	Enabled bool   `json:"enabled" yaml:"enabled"` // enable/disable this upstream
 }
 
 const (
-	RouteTypeProxy = "proxy"
-	RouteTypeMock  = "mock"
+	RouteTypeProxy  = "proxy"
+	RouteTypeMock   = "mock"
+	SSHAuthPassword = "password"
+	SSHAuthKey      = "key"
+	SSHModeLocal    = "local"
+	SSHModeRemote   = "remote"
 )
 
 type MockConfig struct {
@@ -44,6 +49,7 @@ type Route struct {
 	Headers     map[string]string `json:"headers" yaml:"headers"`
 	Timeout     int               `json:"timeout" yaml:"timeout"`
 	Mock        *MockConfig       `json:"mock,omitempty" yaml:"mock,omitempty"`
+	Enabled     bool              `json:"enabled" yaml:"enabled"`
 }
 
 // ResolveUpstreams returns the effective upstream list.
@@ -71,10 +77,33 @@ func (r Route) IsMock() bool {
 	return r.EffectiveType() == RouteTypeMock
 }
 
+type TcpRoute struct {
+	Listen    string     `json:"listen" yaml:"listen"`
+	Enabled   bool       `json:"enabled" yaml:"enabled"`
+	Upstreams []Upstream `json:"upstreams" yaml:"upstreams"`
+}
+
+type SSHTunnel struct {
+	Name           string `json:"name" yaml:"name"`
+	Enabled        bool   `json:"enabled" yaml:"enabled"`
+	Host           string `json:"host" yaml:"host"`
+	Port           int    `json:"port" yaml:"port"`
+	Username       string `json:"username" yaml:"username"`
+	AuthType       string `json:"auth_type" yaml:"auth_type"`
+	Password       string `json:"password,omitempty" yaml:"password,omitempty"`
+	PrivateKey     string `json:"private_key,omitempty" yaml:"private_key,omitempty"`
+	PrivateKeyPath string `json:"private_key_path,omitempty" yaml:"private_key_path,omitempty"`
+	Direction      string `json:"direction" yaml:"direction"`
+	LocalAddress   string `json:"local_address" yaml:"local_address"`
+	RemoteAddress  string `json:"remote_address" yaml:"remote_address"`
+}
+
 type Config struct {
-	Port             int     `json:"port" yaml:"port"`
-	LogRequestParams bool    `json:"log_request_params" yaml:"log_request_params"`
-	Routes           []Route `json:"routes" yaml:"routes"`
+	Port             int         `json:"port" yaml:"port"`
+	LogRequestParams bool        `json:"log_request_params" yaml:"log_request_params"`
+	Routes           []Route     `json:"routes" yaml:"routes"`
+	TcpRoutes        []TcpRoute  `json:"tcp_routes" yaml:"tcp_routes"`
+	SSHTunnels       []SSHTunnel `json:"ssh_tunnels" yaml:"ssh_tunnels"`
 }
 
 type ConfigManager struct {
@@ -88,8 +117,10 @@ type ConfigManager struct {
 func NewManager(path string) *ConfigManager {
 	return &ConfigManager{
 		config: &Config{
-			Port:   8080,
-			Routes: []Route{},
+			Port:       8080,
+			Routes:     []Route{},
+			TcpRoutes:  []TcpRoute{},
+			SSHTunnels: []SSHTunnel{},
 		},
 		path: path,
 		done: make(chan struct{}),
@@ -159,6 +190,96 @@ func (m *ConfigManager) DeleteRoute(path string) error {
 	return fmt.Errorf("route with path %q not found", path)
 }
 
+func (m *ConfigManager) SetTcpRoutes(routes []TcpRoute) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeTcpRoutes(routes)
+	m.config.TcpRoutes = routes
+}
+
+func (m *ConfigManager) SetSSHTunnels(tunnels []SSHTunnel) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeSSHTunnels(tunnels)
+	m.config.SSHTunnels = tunnels
+}
+
+func (m *ConfigManager) AddTcpRoute(route TcpRoute) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeTcpRoute(&route)
+	for _, r := range m.config.TcpRoutes {
+		if r.Listen == route.Listen {
+			return fmt.Errorf("TCP route with listen %q already exists", route.Listen)
+		}
+	}
+	m.config.TcpRoutes = append(m.config.TcpRoutes, route)
+	return nil
+}
+
+func (m *ConfigManager) UpdateTcpRoute(originalListen string, route TcpRoute) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeTcpRoute(&route)
+	for i, r := range m.config.TcpRoutes {
+		if r.Listen == originalListen {
+			m.config.TcpRoutes[i] = route
+			return nil
+		}
+	}
+	return fmt.Errorf("TCP route with listen %q not found", originalListen)
+}
+
+func (m *ConfigManager) DeleteTcpRoute(listen string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, r := range m.config.TcpRoutes {
+		if r.Listen == listen {
+			m.config.TcpRoutes = append(m.config.TcpRoutes[:i], m.config.TcpRoutes[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("TCP route with listen %q not found", listen)
+}
+
+func (m *ConfigManager) AddSSHTunnel(tunnel SSHTunnel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeSSHTunnel(&tunnel)
+	for _, item := range m.config.SSHTunnels {
+		if item.Name == tunnel.Name {
+			return fmt.Errorf("SSH tunnel with name %q already exists", tunnel.Name)
+		}
+	}
+	m.config.SSHTunnels = append(m.config.SSHTunnels, tunnel)
+	return nil
+}
+
+func (m *ConfigManager) UpdateSSHTunnel(originalName string, tunnel SSHTunnel) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	normalizeSSHTunnel(&tunnel)
+	for i, item := range m.config.SSHTunnels {
+		if item.Name == originalName {
+			m.config.SSHTunnels[i] = tunnel
+			return nil
+		}
+	}
+	return fmt.Errorf("SSH tunnel with name %q not found", originalName)
+}
+
+func (m *ConfigManager) DeleteSSHTunnel(name string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, item := range m.config.SSHTunnels {
+		if item.Name == name {
+			m.config.SSHTunnels = append(m.config.SSHTunnels[:i], m.config.SSHTunnels[i+1:]...)
+			return nil
+		}
+	}
+	return fmt.Errorf("SSH tunnel with name %q not found", name)
+}
+
 func (m *ConfigManager) Load() error {
 	if m.path == "" {
 		return nil
@@ -220,7 +341,7 @@ func (m *ConfigManager) Watch() error {
 						log.Printf("[config] reload error: %v", err)
 					} else {
 						cfg := m.Get()
-						log.Printf("[config] reloaded from file (port=%d, routes=%d)", cfg.Port, len(cfg.Routes))
+						log.Printf("[config] reloaded from file (port=%d, routes=%d, tcp=%d)", cfg.Port, len(cfg.Routes), len(cfg.TcpRoutes))
 					}
 				})
 			case _, ok := <-watcher.Errors:
@@ -266,7 +387,15 @@ func (m *ConfigManager) loadFromFile() error {
 	if cfg.Routes == nil {
 		cfg.Routes = []Route{}
 	}
+	if cfg.TcpRoutes == nil {
+		cfg.TcpRoutes = []TcpRoute{}
+	}
+	if cfg.SSHTunnels == nil {
+		cfg.SSHTunnels = []SSHTunnel{}
+	}
 	normalizeRoutes(cfg.Routes)
+	normalizeTcpRoutes(cfg.TcpRoutes)
+	normalizeSSHTunnels(cfg.SSHTunnels)
 
 	m.mu.Lock()
 	m.config = cfg
@@ -350,5 +479,46 @@ func normalizeGenericValue(v interface{}) interface{} {
 		return out
 	default:
 		return val
+	}
+}
+
+func normalizeTcpRoutes(routes []TcpRoute) {
+	for i := range routes {
+		normalizeTcpRoute(&routes[i])
+	}
+}
+
+func normalizeTcpRoute(route *TcpRoute) {
+	if route.Upstreams == nil {
+		route.Upstreams = []Upstream{}
+	}
+}
+
+func normalizeSSHTunnels(tunnels []SSHTunnel) {
+	for i := range tunnels {
+		normalizeSSHTunnel(&tunnels[i])
+	}
+}
+
+func normalizeSSHTunnel(tunnel *SSHTunnel) {
+	tunnel.Name = strings.TrimSpace(tunnel.Name)
+	tunnel.Host = strings.TrimSpace(tunnel.Host)
+	tunnel.Username = strings.TrimSpace(tunnel.Username)
+	tunnel.AuthType = strings.ToLower(strings.TrimSpace(tunnel.AuthType))
+	if tunnel.AuthType != SSHAuthKey {
+		tunnel.AuthType = SSHAuthPassword
+	}
+	tunnel.Direction = strings.ToLower(strings.TrimSpace(tunnel.Direction))
+	if tunnel.Direction != SSHModeRemote {
+		tunnel.Direction = SSHModeLocal
+	}
+	tunnel.LocalAddress = strings.TrimSpace(tunnel.LocalAddress)
+	tunnel.RemoteAddress = strings.TrimSpace(tunnel.RemoteAddress)
+	tunnel.PrivateKeyPath = strings.TrimSpace(tunnel.PrivateKeyPath)
+	if tunnel.Port == 0 {
+		tunnel.Port = 22
+	}
+	if tunnel.Name == "" {
+		tunnel.Name = fmt.Sprintf("%s-%s-%s", tunnel.Direction, tunnel.LocalAddress, tunnel.RemoteAddress)
 	}
 }

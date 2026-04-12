@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"go-proxy/internal/config"
+	"go-proxy/internal/telemetry"
 )
 
 // ANSI color codes for terminal output
@@ -46,10 +47,26 @@ func statusColor(code int) string {
 	}
 }
 
+func methodColor(method string) string {
+	switch strings.ToUpper(strings.TrimSpace(method)) {
+	case http.MethodGet:
+		return colorGreen
+	case http.MethodPost:
+		return colorBlue
+	case http.MethodPut, http.MethodPatch:
+		return colorYellow
+	case http.MethodDelete:
+		return colorRed
+	default:
+		return colorCyan
+	}
+}
+
 // logRequest logs a proxied request with colored output.
 func logRequest(src, method, path, target string, statusCode int, duration int64, queryParams string, logParams bool) {
 	statusStr := fmt.Sprintf("%s%d%s", statusColor(statusCode), statusCode, colorReset)
 	srcStr := fmt.Sprintf("%s%s%s", colorCyan, src, colorReset)
+	methodStr := fmt.Sprintf("%s%s%s", methodColor(method), method, colorReset)
 	targetStr := fmt.Sprintf("%s%s%s", colorBlue, target, colorReset)
 	durStr := fmt.Sprintf("%s%dms%s", colorGreen, duration, colorReset)
 
@@ -59,7 +76,7 @@ func logRequest(src, method, path, target string, statusCode int, duration int64
 	}
 
 	log.Printf("[proxy] %s %s %s -> %s %s %s%s",
-		srcStr, method, path, targetStr, statusStr, durStr, paramStr)
+		srcStr, methodStr, path, targetStr, statusStr, durStr, paramStr)
 }
 
 type Proxy struct {
@@ -100,6 +117,9 @@ func weightedRoundRobin(routePath string, upstreams []config.Upstream) *config.U
 	var primaries, backups []config.Upstream
 	for i := range upstreams {
 		u := &upstreams[i]
+		if !u.Enabled {
+			continue
+		}
 		if u.Backup {
 			backups = append(backups, *u)
 		} else {
@@ -149,6 +169,9 @@ func selectUpstream(routePath string, upstreams []config.Upstream, tryBackup boo
 	// When backup is needed, skip primaries, only use backups
 	var backups []config.Upstream
 	for i := range upstreams {
+		if !upstreams[i].Enabled {
+			continue
+		}
 		if upstreams[i].Backup {
 			backups = append(backups, upstreams[i])
 		}
@@ -165,6 +188,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	src := r.RemoteAddr
 	cfg := p.mgr.Get()
+	telemetry.Default.HTTPStarted()
+	defer telemetry.Default.HTTPFinished()
 
 	if route, ok := selectMatchingRoute(cfg.Routes, r.URL.Path); ok {
 		p.handleMatchedRoute(w, r, route, start)
@@ -174,7 +199,8 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rw := &responseWriter{ResponseWriter: w, status: 200}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	rw.WriteHeader(http.StatusNotFound)
-	fmt.Fprintf(rw, `{"status":404,"message":"no matching route","path":"%s","hint":"check proxy config or visit admin GUI to add routes"}`, r.URL.Path)
+	n, _ := fmt.Fprintf(rw, `{"status":404,"message":"no matching route","path":"%s","hint":"check proxy config or visit admin GUI to add routes"}`, r.URL.Path)
+	telemetry.Default.RecordHTTP(requestSize(r), uint64(n))
 	logRequest(src, r.Method, r.URL.Path, "", http.StatusNotFound, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 }
 
@@ -183,6 +209,9 @@ func selectMatchingRoute(routes []config.Route, path string) (config.Route, bool
 	bestPriority := 0
 
 	for i, route := range routes {
+		if !route.Enabled {
+			continue
+		}
 		if !strings.HasPrefix(path, route.Path) {
 			continue
 		}
@@ -210,8 +239,10 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	src := r.RemoteAddr
 	cfg := p.mgr.Get()
 	upstreams := route.ResolveUpstreams()
+	requestBytes := requestSize(r)
 	if len(upstreams) == 0 {
 		http.Error(w, "no upstream configured", http.StatusBadGateway)
+		telemetry.Default.RecordHTTP(requestBytes, 0)
 		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
@@ -219,6 +250,7 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	selected := selectUpstream(route.Path, upstreams, isRetry)
 	if selected == nil {
 		http.Error(w, "all upstreams exhausted", http.StatusBadGateway)
+		telemetry.Default.RecordHTTP(requestBytes, 0)
 		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
@@ -226,6 +258,7 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	targetURL, err := url.Parse(selected.Target)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("bad upstream target: %v", err), http.StatusBadGateway)
+		telemetry.Default.RecordHTTP(requestBytes, 0)
 		logRequest(src, r.Method, r.URL.Path, "", http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
@@ -286,6 +319,11 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	}
 
 	rp.ModifyResponse = func(resp *http.Response) error {
+		outbound := uint64(0)
+		if resp.ContentLength > 0 {
+			outbound = uint64(resp.ContentLength)
+		}
+		telemetry.Default.RecordHTTP(requestBytes, outbound)
 		logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, resp.StatusCode, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return nil
 	}
@@ -293,6 +331,7 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 	rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		if isTimeoutError(err) {
 			http.Error(w, fmt.Sprintf("gateway timeout: %v", err), http.StatusGatewayTimeout)
+			telemetry.Default.RecordHTTP(requestBytes, 0)
 			logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, http.StatusGatewayTimeout, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		} else {
 			logRequest(src, r.Method, r.URL.Path, selected.Target+forwardPath, http.StatusBadGateway, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
@@ -302,6 +341,7 @@ func (p *Proxy) handleRoute(w http.ResponseWriter, r *http.Request, route config
 				return
 			}
 			http.Error(w, fmt.Sprintf("bad gateway: %v", err), http.StatusBadGateway)
+			telemetry.Default.RecordHTTP(requestBytes, 0)
 		}
 	}
 
@@ -314,16 +354,19 @@ func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route co
 	target := "mock://" + route.Path
 	mock := route.Mock
 	if mock == nil {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("X-Go-Proxy-Mock", "true")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		payload := map[string]interface{}{
 			"code":    50001,
 			"message": "mock route misconfigured",
 			"data": map[string]interface{}{
 				"path": route.Path,
 			},
-		})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusInternalServerError)
+		data, _ := json.Marshal(payload)
+		_, _ = w.Write(append(data, '\n'))
+		telemetry.Default.RecordHTTP(requestSize(r), uint64(len(data)+1))
 		logRequest(src, r.Method, r.URL.Path, target, http.StatusInternalServerError, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
@@ -333,10 +376,7 @@ func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route co
 		method = "ANY"
 	}
 	if method != "ANY" && r.Method != method {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("X-Go-Proxy-Mock", "true")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		payload := map[string]interface{}{
 			"code":    40501,
 			"message": "mock method mismatch",
 			"data": map[string]interface{}{
@@ -344,17 +384,20 @@ func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route co
 				"actual_method":   r.Method,
 				"path":            r.URL.Path,
 			},
-		})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		data, _ := json.Marshal(payload)
+		_, _ = w.Write(append(data, '\n'))
+		telemetry.Default.RecordHTTP(requestSize(r), uint64(len(data)+1))
 		logRequest(src, r.Method, r.URL.Path, target, http.StatusMethodNotAllowed, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
 
 	requestParams := collectRequestParams(r)
 	if mismatch := findMockParamMismatch(mock.Params, requestParams); len(mismatch) > 0 {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("X-Go-Proxy-Mock", "true")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		payload := map[string]interface{}{
 			"code":    40001,
 			"message": "mock params mismatch",
 			"data": map[string]interface{}{
@@ -363,7 +406,13 @@ func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route co
 				"mismatch":        mismatch,
 				"path":            r.URL.Path,
 			},
-		})
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("X-Go-Proxy-Mock", "true")
+		w.WriteHeader(http.StatusBadRequest)
+		data, _ := json.Marshal(payload)
+		_, _ = w.Write(append(data, '\n'))
+		telemetry.Default.RecordHTTP(requestSize(r), uint64(len(data)+1))
 		logRequest(src, r.Method, r.URL.Path, target, http.StatusBadRequest, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 		return
 	}
@@ -389,9 +438,15 @@ func (p *Proxy) handleMockRoute(w http.ResponseWriter, r *http.Request, route co
 	w.WriteHeader(statusCode)
 
 	// Output raw data as-is
+	outbound := uint64(0)
 	if mock.Data != nil {
-		_ = json.NewEncoder(w).Encode(mock.Data)
+		data, err := json.Marshal(mock.Data)
+		if err == nil {
+			_, _ = w.Write(append(data, '\n'))
+			outbound = uint64(len(data) + 1)
+		}
 	}
+	telemetry.Default.RecordHTTP(requestSize(r), outbound)
 
 	logRequest(src, r.Method, r.URL.Path, target, statusCode, time.Since(start).Milliseconds(), r.URL.RawQuery, cfg.LogRequestParams)
 }
@@ -488,6 +543,13 @@ func isTimeoutError(err error) bool {
 	return false
 }
 
+func requestSize(r *http.Request) uint64 {
+	if r == nil || r.ContentLength <= 0 {
+		return 0
+	}
+	return uint64(r.ContentLength)
+}
+
 func Start(mgr *config.ConfigManager) error {
 	cfg := mgr.Get()
 	p := New(mgr)
@@ -497,6 +559,21 @@ func Start(mgr *config.ConfigManager) error {
 
 	addr := fmt.Sprintf(":%d", cfg.Port)
 	log.Printf("[proxy] listening on %s", addr)
+
+	// Start TCP proxy listeners
+	tcpMgr := NewTcpManager(mgr)
+	if err := tcpMgr.Start(); err != nil {
+		log.Printf("[tcp] warning: %v", err)
+	}
+	go tcpMgr.Watch(time.Second)
+	defer tcpMgr.Close()
+
+	sshMgr := NewSSHManager(mgr)
+	if err := sshMgr.Start(); err != nil {
+		log.Printf("[ssh] warning: %v", err)
+	}
+	go sshMgr.Watch(time.Second)
+	defer sshMgr.Close()
 
 	server := &http.Server{
 		Addr:         addr,
