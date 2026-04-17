@@ -1,3 +1,4 @@
+(() => {
 const { safeParseJson, formatJsonText, minifyJsonText } = window.GoProxyUtils;
 
 window.GoProxyComponents = {
@@ -278,3 +279,4 @@ window.GoProxyComponents = {
         `
     }
 };
+})();

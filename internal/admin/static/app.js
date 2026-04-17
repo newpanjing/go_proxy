@@ -1,3 +1,4 @@
+(() => {
 const { createApp } = Vue;
 const { NAV_ITEMS, MODULE_META } = window.GoProxyConstants;
 const {
@@ -609,3 +610,4 @@ createApp({
         }
     }
 }).mount('#app');
+})();

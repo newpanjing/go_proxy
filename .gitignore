@@ -11,6 +11,7 @@ config.yaml
 .vscode/
 *.swp
 *.swo
+node_modules/
 
 # OS
 .DS_Store

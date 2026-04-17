@@ -1,0 +1,10 @@
+{
+  "name": "go-proxy-admin-static",
+  "private": true,
+  "scripts": {
+    "build:tailwind": "tailwindcss -c tailwind.config.js -i ./internal/admin/static/tailwind.input.css -o ./internal/admin/static/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
+  }
+}
