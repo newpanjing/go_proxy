@@ -117,7 +117,7 @@ func weightedRoundRobin(routePath string, upstreams []config.Upstream) *config.U
 	var primaries, backups []config.Upstream
 	for i := range upstreams {
 		u := &upstreams[i]
-		if !u.Enabled {
+		if !u.IsEnabled() {
 			continue
 		}
 		if u.Backup {
@@ -169,7 +169,7 @@ func selectUpstream(routePath string, upstreams []config.Upstream, tryBackup boo
 	// When backup is needed, skip primaries, only use backups
 	var backups []config.Upstream
 	for i := range upstreams {
-		if !upstreams[i].Enabled {
+		if !upstreams[i].IsEnabled() {
 			continue
 		}
 		if upstreams[i].Backup {
@@ -209,7 +209,7 @@ func selectMatchingRoute(routes []config.Route, path string) (config.Route, bool
 	bestPriority := 0
 
 	for i, route := range routes {
-		if !route.Enabled {
+		if !route.IsEnabled() {
 			continue
 		}
 		if !strings.HasPrefix(path, route.Path) {

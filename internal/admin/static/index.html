@@ -123,8 +123,8 @@
         .module-surface input,
         .module-surface select,
         .module-surface textarea {
-            min-height: 42px !important;
-            padding: 10px 14px !important;
+            min-height: 40px !important;
+            padding: 9px 13px !important;
             background: rgba(15, 23, 42, 0.42) !important;
             color: #e2e8f0 !important;
             border-color: rgba(148, 163, 184, 0.16) !important;
@@ -132,6 +132,102 @@
         .dialog-body textarea,
         .module-surface textarea {
             min-height: 120px !important;
+        }
+        .json-editor-shell {
+            border-radius: 28px;
+            border: 1px solid rgba(148, 163, 184, 0.18);
+            background: linear-gradient(180deg, rgba(7, 12, 18, 0.98) 0%, rgba(10, 16, 24, 0.98) 100%);
+            overflow: hidden;
+        }
+        .json-editor-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+            background: rgba(15, 23, 42, 0.55);
+        }
+        .json-editor-status {
+            font-size: 12px;
+            line-height: 1.4;
+            font-weight: 600;
+        }
+        .json-editor-status.is-valid {
+            color: #86efac;
+        }
+        .json-editor-status.is-invalid {
+            color: #fda4af;
+        }
+        .json-editor-action {
+            min-height: 32px;
+            padding: 0 12px;
+            border-radius: 999px;
+            border: 1px solid rgba(59, 130, 246, 0.18);
+            background: rgba(37, 99, 235, 0.12);
+            color: #dbeafe;
+            font-size: 12px;
+            font-weight: 600;
+            transition: background 140ms ease, border-color 140ms ease;
+        }
+        .json-editor-action:hover:not(:disabled) {
+            background: rgba(37, 99, 235, 0.2);
+            border-color: rgba(96, 165, 250, 0.35);
+        }
+        .json-editor-action:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .json-editor-surface {
+            position: relative;
+            overflow: hidden;
+        }
+        .json-editor-overlay,
+        .json-editor-input {
+            margin: 0;
+            width: 100%;
+            min-height: 100%;
+            padding: 18px 18px 20px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+            font-size: 13px;
+            line-height: 1.7;
+            letter-spacing: 0.01em;
+            white-space: pre;
+            overflow: auto;
+            tab-size: 2;
+        }
+        .json-editor-overlay {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            color: #cbd5e1;
+        }
+        .json-editor-input {
+            position: relative;
+            resize: vertical;
+            border: 0 !important;
+            background: transparent !important;
+            color: transparent !important;
+            caret-color: #f8fafc;
+            outline: none;
+        }
+        .json-editor-placeholder {
+            color: #475569;
+        }
+        .json-editor-string {
+            color: #86efac;
+        }
+        .json-editor-number {
+            color: #7dd3fc;
+        }
+        .json-editor-boolean {
+            color: #f9a8d4;
+        }
+        .json-editor-null {
+            color: #fdba74;
+        }
+        .json-editor-punctuation {
+            color: #94a3b8;
         }
         .dialog-body input::placeholder,
         .dialog-body textarea::placeholder,
@@ -254,6 +350,28 @@
             background: rgba(255, 255, 255, 0.86) !important;
             color: #0f172a !important;
             border-color: rgba(148, 163, 184, 0.24) !important;
+        }
+        html.light .json-editor-shell {
+            border-color: rgba(148, 163, 184, 0.2);
+            background: linear-gradient(180deg, #f8fbff 0%, #eef4fb 100%);
+        }
+        html.light .json-editor-toolbar {
+            background: rgba(226, 232, 240, 0.72);
+            border-bottom-color: rgba(148, 163, 184, 0.18);
+        }
+        html.light .json-editor-action {
+            color: #1d4ed8;
+            background: rgba(59, 130, 246, 0.08);
+            border-color: rgba(59, 130, 246, 0.16);
+        }
+        html.light .json-editor-overlay {
+            color: #0f172a;
+        }
+        html.light .json-editor-input {
+            caret-color: #0f172a;
+        }
+        html.light .json-editor-placeholder {
+            color: #94a3b8;
         }
         .grid-line {
             stroke: rgba(51, 65, 85, 0.6);
@@ -756,12 +874,26 @@
                                 <button @click="routeModal.form.upstreams.push(defaultUpstream('http'))" data-tooltip="新增 Upstream" aria-label="新增 Upstream" class="theme-on rounded-2xl bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-glow"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></button>
                             </div>
                             <div class="space-y-3">
-                                <div v-for="(upstream, index) in routeModal.form.upstreams" :key="'route-upstream-' + index" class="grid gap-3 border-t border-slate-200/70 pt-3 first:border-t-0 first:pt-0 lg:grid-cols-[minmax(0,1fr)_110px_110px_110px_auto] dark:border-slate-800/80">
-                                    <input v-model.trim="upstream.target" type="text" placeholder="http://127.0.0.1:3000" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950/60">
-                                    <input v-model.number="upstream.weight" type="number" min="1" max="100" class="rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950/60">
-                                    <status-switch :enabled="upstream.enabled !== false" on-label="启用" off-label="停用" :show-labels="true" @toggle="upstream.enabled = !upstream.enabled"></status-switch>
-                                    <status-switch :enabled="upstream.backup" on-label="备用" off-label="主用" :show-labels="true" @toggle="upstream.backup = !upstream.backup"></status-switch>
-                                    <button @click="routeModal.form.upstreams.splice(index, 1)" data-tooltip="移除 Upstream" aria-label="移除 Upstream" class="rounded-2xl border border-red-300 bg-red-500/10 px-3 py-3 text-sm font-semibold text-red-700 dark:border-red-400/20 dark:text-red-300"><svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 12h12"/></svg></button>
+                                <div v-for="(upstream, index) in routeModal.form.upstreams" :key="'route-upstream-' + index" class="space-y-3 border-t border-slate-200/70 pt-4 first:border-t-0 first:pt-0 dark:border-slate-800/80">
+                                    <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px_auto]">
+                                        <label class="block">
+                                            <div class="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">目标地址</div>
+                                            <input v-model.trim="upstream.target" type="text" placeholder="http://127.0.0.1:3000" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950/60">
+                                        </label>
+                                        <label class="block">
+                                            <div class="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">权重</div>
+                                            <input v-model.number="upstream.weight" type="number" min="1" max="100" class="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950/60">
+                                        </label>
+                                        <div class="flex items-end justify-end">
+                                            <button @click="routeModal.form.upstreams.splice(index, 1)" data-tooltip="移除 Upstream" aria-label="移除 Upstream" class="flex h-10 w-10 items-center justify-center rounded-2xl bg-red-500/12 text-red-400">
+                                                <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 12h12"/></svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="grid gap-3 sm:grid-cols-2 lg:max-w-[440px]">
+                                        <status-switch :enabled="upstream.enabled !== false" on-label="启用" off-label="停用" :show-labels="true" @toggle="upstream.enabled = !upstream.enabled"></status-switch>
+                                        <status-switch :enabled="upstream.backup" on-label="备用" off-label="主用" :show-labels="true" @toggle="upstream.backup = !upstream.backup"></status-switch>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -825,8 +957,11 @@
                         </div>
 
                         <label class="block">
-                            <div class="mb-2 text-sm font-medium text-slate-700 dark:text-slate-200">响应数据（JSON）</div>
-                            <textarea v-model="routeModal.form.mock.dataText" rows="8" class="w-full rounded-[28px] border border-slate-200 bg-white px-4 py-3 font-mono text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950/60"></textarea>
+                            <div class="mb-2 flex items-center justify-between gap-3 text-sm font-medium text-slate-700 dark:text-slate-200">
+                                <span>响应数据（JSON）</span>
+                                <span class="text-xs font-normal text-slate-500 dark:text-slate-400">支持 Tab 缩进和高亮预览</span>
+                            </div>
+                            <json-code-editor v-model="routeModal.form.mock.dataText" :rows="18"></json-code-editor>
                         </label>
 
                         <div class="space-y-3 pt-2">

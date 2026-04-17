@@ -26,13 +26,16 @@ const {
     seriesToPoints,
     linePath,
     areaPath,
-    clone
+    clone,
+    safeParseJson,
+    formatJsonText
 } = window.GoProxyUtils;
 const { api, connectTelemetry, connectLogs } = window.GoProxyServices;
-const { StatusSwitch, LogStreamPanel, TcpLogPanel } = window.GoProxyComponents;
+const { JsonCodeEditor, StatusSwitch, LogStreamPanel, TcpLogPanel } = window.GoProxyComponents;
 
 createApp({
     components: {
+        JsonCodeEditor,
         StatusSwitch,
         LogStreamPanel,
         TcpLogPanel
@@ -388,7 +391,7 @@ createApp({
                     response_type: route.mock?.response_type || 'application/json',
                     params: mapToPairs(route.mock?.params),
                     headers: mapToPairs(route.mock?.headers),
-                    dataText: JSON.stringify(route.mock?.data ?? {}, null, 2)
+                    dataText: formatJsonText(route.mock?.data, {})
                 };
                 if (!form.upstreams.length) form.upstreams = [defaultUpstream('http')];
             }
@@ -505,12 +508,8 @@ createApp({
 
             let payload;
             if (form.type === 'mock') {
-                let data;
-                try {
-                    data = form.mock.dataText ? JSON.parse(form.mock.dataText) : {};
-                } catch {
-                    return this.showToast('响应数据必须是合法 JSON', 'warning');
-                }
+                const parsed = safeParseJson(form.mock.dataText, {});
+                if (!parsed.ok) return this.showToast('响应数据必须是合法 JSON', 'warning');
                 payload = {
                     path,
                     priority: Number(form.priority) || 0,
@@ -522,7 +521,7 @@ createApp({
                         status_code: Number(form.mock.status_code) || 200,
                         response_type: form.mock.response_type || 'application/json',
                         headers: pairsToMap(form.mock.headers),
-                        data
+                        data: parsed.value
                     }
                 };
             } else {

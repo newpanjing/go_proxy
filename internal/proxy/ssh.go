@@ -89,7 +89,7 @@ func (sm *SSHManager) Watch(interval time.Duration) {
 func (sm *SSHManager) reconcile(tunnels []config.SSHTunnel) {
 	desired := make(map[string]config.SSHTunnel, len(tunnels))
 	for _, tunnel := range tunnels {
-		if tunnel.Enabled {
+		if tunnel.IsEnabled() {
 			desired[tunnel.Name] = tunnel
 		}
 	}

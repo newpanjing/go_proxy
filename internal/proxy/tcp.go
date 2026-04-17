@@ -50,7 +50,7 @@ func (tm *TcpManager) reconcile(routes []config.TcpRoute) {
 	desired := make(map[string]config.TcpRoute, len(routes))
 	for i := range routes {
 		route := routes[i]
-		if route.Enabled {
+		if route.IsEnabled() {
 			desired[route.Listen] = route
 		}
 	}
@@ -159,7 +159,7 @@ func (tm *TcpManager) handleConnection(clientConn net.Conn, listenAddr string) {
 	// Filter enabled upstreams
 	var enabledUpstreams []config.Upstream
 	for _, u := range route.Upstreams {
-		if u.Enabled {
+		if u.IsEnabled() {
 			enabledUpstreams = append(enabledUpstreams, u)
 		}
 	}
@@ -187,7 +187,7 @@ func (tm *TcpManager) handleConnection(clientConn net.Conn, listenAddr string) {
 	}
 	defer upstreamConn.Close()
 
-	log.Printf("[tcp] %s -> %s (%s) %dms", src, upstream, listenAddr, time.Since(start).Milliseconds())
+	log.Printf("[tcp] %s -> %s (%s) %dms", src, upstream.Target, listenAddr, time.Since(start).Milliseconds())
 
 	// Bidirectional copy
 	inboundDone := make(chan uint64, 1)

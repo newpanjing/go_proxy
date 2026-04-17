@@ -134,19 +134,19 @@ func (h *Hub) Subscribe() (<-chan Snapshot, func()) {
 func (h *Hub) ApplyConfig(cfg config.Config) {
 	httpEnabled := 0
 	for _, route := range cfg.Routes {
-		if route.Enabled {
+		if route.IsEnabled() {
 			httpEnabled++
 		}
 	}
 	tcpEnabled := 0
 	for _, route := range cfg.TcpRoutes {
-		if route.Enabled {
+		if route.IsEnabled() {
 			tcpEnabled++
 		}
 	}
 	sshEnabled := 0
 	for _, tunnel := range cfg.SSHTunnels {
-		if tunnel.Enabled {
+		if tunnel.IsEnabled() {
 			sshEnabled++
 		}
 	}

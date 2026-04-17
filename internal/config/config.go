@@ -18,7 +18,7 @@ type Upstream struct {
 	Target  string `json:"target" yaml:"target"`
 	Weight  int    `json:"weight" yaml:"weight"`   // 0 or 1 = equal, >1 = higher chance
 	Backup  bool   `json:"backup" yaml:"backup"`   // only used when all non-backup are down
-	Enabled bool   `json:"enabled" yaml:"enabled"` // enable/disable this upstream
+	Enabled *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"` // nil means enabled by default
 }
 
 const (
@@ -49,7 +49,7 @@ type Route struct {
 	Headers     map[string]string `json:"headers" yaml:"headers"`
 	Timeout     int               `json:"timeout" yaml:"timeout"`
 	Mock        *MockConfig       `json:"mock,omitempty" yaml:"mock,omitempty"`
-	Enabled     bool              `json:"enabled" yaml:"enabled"`
+	Enabled     *bool             `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 }
 
 // ResolveUpstreams returns the effective upstream list.
@@ -61,7 +61,7 @@ func (r *Route) ResolveUpstreams() []Upstream {
 		return r.Upstreams
 	}
 	if r.Target != "" {
-		return []Upstream{{Target: r.Target, Weight: 1}}
+		return []Upstream{{Target: r.Target, Weight: 1, Enabled: boolPtr(true)}}
 	}
 	return nil
 }
@@ -77,15 +77,23 @@ func (r Route) IsMock() bool {
 	return r.EffectiveType() == RouteTypeMock
 }
 
+func (r Route) IsEnabled() bool {
+	return boolValue(r.Enabled, true)
+}
+
 type TcpRoute struct {
 	Listen    string     `json:"listen" yaml:"listen"`
-	Enabled   bool       `json:"enabled" yaml:"enabled"`
+	Enabled   *bool      `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Upstreams []Upstream `json:"upstreams" yaml:"upstreams"`
+}
+
+func (r TcpRoute) IsEnabled() bool {
+	return boolValue(r.Enabled, true)
 }
 
 type SSHTunnel struct {
 	Name           string `json:"name" yaml:"name"`
-	Enabled        bool   `json:"enabled" yaml:"enabled"`
+	Enabled        *bool  `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Host           string `json:"host" yaml:"host"`
 	Port           int    `json:"port" yaml:"port"`
 	Username       string `json:"username" yaml:"username"`
@@ -96,6 +104,14 @@ type SSHTunnel struct {
 	Direction      string `json:"direction" yaml:"direction"`
 	LocalAddress   string `json:"local_address" yaml:"local_address"`
 	RemoteAddress  string `json:"remote_address" yaml:"remote_address"`
+}
+
+func (t SSHTunnel) IsEnabled() bool {
+	return boolValue(t.Enabled, true)
+}
+
+func (u Upstream) IsEnabled() bool {
+	return boolValue(u.Enabled, true)
 }
 
 type Config struct {
@@ -411,6 +427,9 @@ func normalizeRoutes(routes []Route) {
 
 func normalizeRoute(route *Route) {
 	route.Type = route.EffectiveType()
+	if route.Enabled == nil {
+		route.Enabled = boolPtr(true)
+	}
 	if route.Headers == nil {
 		route.Headers = map[string]string{}
 	}
@@ -432,6 +451,9 @@ func normalizeRoute(route *Route) {
 	route.Mock = nil
 	if route.Upstreams == nil {
 		route.Upstreams = []Upstream{}
+	}
+	for i := range route.Upstreams {
+		normalizeUpstream(&route.Upstreams[i])
 	}
 }
 
@@ -489,8 +511,14 @@ func normalizeTcpRoutes(routes []TcpRoute) {
 }
 
 func normalizeTcpRoute(route *TcpRoute) {
+	if route.Enabled == nil {
+		route.Enabled = boolPtr(true)
+	}
 	if route.Upstreams == nil {
 		route.Upstreams = []Upstream{}
+	}
+	for i := range route.Upstreams {
+		normalizeUpstream(&route.Upstreams[i])
 	}
 }
 
@@ -501,6 +529,9 @@ func normalizeSSHTunnels(tunnels []SSHTunnel) {
 }
 
 func normalizeSSHTunnel(tunnel *SSHTunnel) {
+	if tunnel.Enabled == nil {
+		tunnel.Enabled = boolPtr(true)
+	}
 	tunnel.Name = strings.TrimSpace(tunnel.Name)
 	tunnel.Host = strings.TrimSpace(tunnel.Host)
 	tunnel.Username = strings.TrimSpace(tunnel.Username)
@@ -521,4 +552,22 @@ func normalizeSSHTunnel(tunnel *SSHTunnel) {
 	if tunnel.Name == "" {
 		tunnel.Name = fmt.Sprintf("%s-%s-%s", tunnel.Direction, tunnel.LocalAddress, tunnel.RemoteAddress)
 	}
+}
+
+func normalizeUpstream(upstream *Upstream) {
+	if upstream.Enabled == nil {
+		upstream.Enabled = boolPtr(true)
+	}
+}
+
+func boolPtr(value bool) *bool {
+	v := value
+	return &v
+}
+
+func boolValue(value *bool, defaultValue bool) bool {
+	if value == nil {
+		return defaultValue
+	}
+	return *value
 }

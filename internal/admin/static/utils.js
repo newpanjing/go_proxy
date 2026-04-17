@@ -217,6 +217,30 @@
         return JSON.parse(JSON.stringify(value));
     }
 
+    function safeParseJson(text, fallback) {
+        const source = String(text ?? '').trim();
+        if (!source) return { ok: true, value: fallback ?? {} };
+        try {
+            return { ok: true, value: JSON.parse(source) };
+        } catch (error) {
+            return {
+                ok: false,
+                value: fallback ?? null,
+                error: error instanceof Error ? error.message : 'JSON 解析失败'
+            };
+        }
+    }
+
+    function formatJsonText(value, fallback = {}) {
+        const parsed = typeof value === 'string' ? safeParseJson(value, fallback) : { ok: true, value: value ?? fallback };
+        return JSON.stringify(parsed.ok ? parsed.value : fallback, null, 2);
+    }
+
+    function minifyJsonText(value, fallback = {}) {
+        const parsed = typeof value === 'string' ? safeParseJson(value, fallback) : { ok: true, value: value ?? fallback };
+        return JSON.stringify(parsed.ok ? parsed.value : fallback);
+    }
+
     window.GoProxyUtils = {
         createEmptyConfig,
         createEmptyMetrics,
@@ -243,6 +267,9 @@
         seriesToPoints,
         linePath,
         areaPath,
-        clone
+        clone,
+        safeParseJson,
+        formatJsonText,
+        minifyJsonText
     };
 })();

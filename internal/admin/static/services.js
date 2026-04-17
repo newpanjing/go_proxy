@@ -1,4 +1,20 @@
 (() => {
+    function request(url, options = {}) {
+        const baseHeaders = options.body ? { 'Content-Type': 'application/json' } : {};
+        return fetch(url, {
+            ...options,
+            headers: {
+                ...baseHeaders,
+                ...(options.headers || {})
+            }
+        });
+    }
+
+    async function requestJson(url, options = {}) {
+        const response = await request(url, options);
+        return response.json();
+    }
+
     async function consumeSSE(url, signal, onEvent, onOpen) {
         const response = await fetch(url, {
             headers: {
@@ -54,85 +70,71 @@
 
     const api = {
         async loadConfig() {
-            const response = await fetch('/api/config');
-            return response.json();
+            return requestJson('/api/config');
         },
         async saveConfig(config) {
-            return fetch('/api/config', {
+            return request('/api/config', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config)
             });
         },
         async saveRoute(isEdit, originalPath, route) {
             const url = isEdit ? '/api/routes/update' : '/api/routes/add';
             const body = isEdit ? { original_path: originalPath, route } : route;
-            const response = await fetch(url, {
+            return requestJson(url, {
                 method: isEdit ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            return response.json();
         },
         async deleteRoute(path) {
-            return fetch('/api/routes/delete', {
+            return request('/api/routes/delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ path })
             });
         },
         async updateRoute(originalPath, route) {
-            return fetch('/api/routes/update', {
+            return request('/api/routes/update', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ original_path: originalPath, route })
             });
         },
         async saveTcpRoute(isEdit, originalListen, route) {
             const url = isEdit ? '/api/tcp-routes/update' : '/api/tcp-routes/add';
             const body = isEdit ? { original_listen: originalListen, route } : route;
-            const response = await fetch(url, {
+            return requestJson(url, {
                 method: isEdit ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            return response.json();
         },
         async deleteTcpRoute(listen) {
-            return fetch('/api/tcp-routes/delete', {
+            return request('/api/tcp-routes/delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ listen })
             });
         },
         async updateTcpRoute(originalListen, route) {
-            return fetch('/api/tcp-routes/update', {
+            return request('/api/tcp-routes/update', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ original_listen: originalListen, route })
             });
         },
         async saveSSHTunnel(isEdit, originalName, tunnel) {
             const url = isEdit ? '/api/ssh-tunnels/update' : '/api/ssh-tunnels/add';
             const body = isEdit ? { original_name: originalName, tunnel } : tunnel;
-            const response = await fetch(url, {
+            return requestJson(url, {
                 method: isEdit ? 'PUT' : 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body)
             });
-            return response.json();
         },
         async deleteSSHTunnel(name) {
-            return fetch('/api/ssh-tunnels/delete', {
+            return request('/api/ssh-tunnels/delete', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name })
             });
         },
         async updateSSHTunnel(originalName, tunnel) {
-            return fetch('/api/ssh-tunnels/update', {
+            return request('/api/ssh-tunnels/update', {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ original_name: originalName, tunnel })
             });
         }

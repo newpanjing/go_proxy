@@ -1,4 +1,137 @@
+const { safeParseJson, formatJsonText, minifyJsonText } = window.GoProxyUtils;
+
 window.GoProxyComponents = {
+    JsonCodeEditor: {
+        props: {
+            modelValue: { type: String, default: '' },
+            rows: { type: Number, default: 14 }
+        },
+        emits: ['update:modelValue'],
+        computed: {
+            validation() {
+                return safeParseJson(this.modelValue, {});
+            },
+            highlightedHtml() {
+                const text = String(this.modelValue || '');
+                if (!text) return '<span class="json-editor-placeholder">{\n  \n}</span>';
+                const escaped = this.escapeHtml(text);
+                return escaped
+                    .replace(/("(?:\\.|[^"\\])*")(\s*:)?/g, (_, stringToken, colon) => {
+                        const suffix = colon ? '<span class="json-editor-punctuation">:</span>' : '';
+                        return `<span class="json-editor-string">${stringToken}</span>${suffix}`;
+                    })
+                    .replace(/\b(true|false)\b/g, '<span class="json-editor-boolean">$1</span>')
+                    .replace(/\bnull\b/g, '<span class="json-editor-null">null</span>')
+                    .replace(/-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b/g, '<span class="json-editor-number">$&</span>')
+                    .replace(/([{}[\],])/g, '<span class="json-editor-punctuation">$1</span>');
+            }
+        },
+        methods: {
+            escapeHtml(value) {
+                return String(value || '')
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            },
+            updateValue(event) {
+                this.$emit('update:modelValue', event.target.value);
+                this.syncScroll(event);
+            },
+            syncScroll(event) {
+                const overlay = this.$refs.overlay;
+                const input = event?.target || this.$refs.input;
+                if (!overlay || !input) return;
+                overlay.scrollTop = input.scrollTop;
+                overlay.scrollLeft = input.scrollLeft;
+            },
+            setValue(nextValue) {
+                this.$emit('update:modelValue', nextValue);
+            },
+            formatJson() {
+                if (!this.validation.ok) return;
+                this.setValue(formatJsonText(this.modelValue, {}));
+            },
+            minifyJson() {
+                if (!this.validation.ok) return;
+                this.setValue(minifyJsonText(this.modelValue, {}));
+            },
+            handleKeydown(event) {
+                if (event.key !== 'Tab') return;
+                event.preventDefault();
+                const input = event.target;
+                const value = input.value;
+                const start = input.selectionStart;
+                const end = input.selectionEnd;
+                const indent = '  ';
+
+                if (event.shiftKey) {
+                    const lineStart = value.lastIndexOf('\n', Math.max(start - 1, 0)) + 1;
+                    const selected = value.slice(lineStart, end);
+                    const lines = selected.split('\n');
+                    let removed = 0;
+                    const next = lines.map(line => {
+                        if (line.startsWith(indent)) {
+                            removed += indent.length;
+                            return line.slice(indent.length);
+                        }
+                        if (line.startsWith('\t')) {
+                            removed += 1;
+                            return line.slice(1);
+                        }
+                        return line;
+                    }).join('\n');
+                    const updated = value.slice(0, lineStart) + next + value.slice(end);
+                    this.setValue(updated);
+                    this.$nextTick(() => {
+                        input.selectionStart = start > lineStart ? Math.max(lineStart, start - indent.length) : start;
+                        input.selectionEnd = Math.max(input.selectionStart, end - removed);
+                        this.syncScroll({ target: input });
+                    });
+                    return;
+                }
+
+                const updated = value.slice(0, start) + indent + value.slice(end);
+                this.setValue(updated);
+                this.$nextTick(() => {
+                    input.selectionStart = input.selectionEnd = start + indent.length;
+                    this.syncScroll({ target: input });
+                });
+            }
+        },
+        template: `
+            <div class="json-editor-shell">
+                <div class="json-editor-toolbar">
+                    <div class="json-editor-status" :class="validation.ok ? 'is-valid' : 'is-invalid'">
+                        {{ validation.ok ? 'JSON 有效' : (validation.error || 'JSON 无效') }}
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button type="button" @click="formatJson" :disabled="!validation.ok" class="json-editor-action">
+                            格式化
+                        </button>
+                        <button type="button" @click="minifyJson" :disabled="!validation.ok" class="json-editor-action">
+                            压缩
+                        </button>
+                    </div>
+                </div>
+                <div class="json-editor-surface" :style="{ minHeight: (rows * 22 + 42) + 'px' }">
+                    <pre ref="overlay" aria-hidden="true" class="json-editor-overlay" v-html="highlightedHtml"></pre>
+                    <textarea
+                        ref="input"
+                        :value="modelValue"
+                        spellcheck="false"
+                        autocapitalize="off"
+                        autocomplete="off"
+                        autocorrect="off"
+                        :rows="rows"
+                        class="json-editor-input"
+                        @input="updateValue"
+                        @scroll="syncScroll"
+                        @keydown="handleKeydown"
+                    ></textarea>
+                </div>
+            </div>
+        `
+    },
     StatusSwitch: {
         props: {
             enabled: { type: Boolean, required: true },
@@ -10,15 +143,15 @@ window.GoProxyComponents = {
         template: `
             <button
                 @click="$emit('toggle')"
-                :class="showLabels ? 'w-full justify-between px-4 py-2.5' : 'w-auto justify-center px-1 py-1'"
+                :class="showLabels ? 'min-h-[42px] w-full justify-between px-3 py-2' : 'w-auto justify-center px-1 py-1'"
                 class="flex items-center gap-3 rounded-3xl bg-slate-900/88 text-left text-sm font-semibold text-slate-100"
             >
-                <span v-if="showLabels" class="flex items-center gap-2">
+                <span v-if="showLabels" class="flex min-w-0 items-center gap-2">
                     <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="1.8" :class="enabled ? 'text-blue-300' : 'text-slate-400'">
                         <path d="M12 6v12M6 12h12" v-if="enabled"></path>
                         <path d="M6 12h12" v-else></path>
                     </svg>
-                    <span :class="enabled ? 'text-blue-300' : 'text-slate-400'">{{ enabled ? onLabel : offLabel }}</span>
+                    <span class="truncate" :class="enabled ? 'text-blue-300' : 'text-slate-400'">{{ enabled ? onLabel : offLabel }}</span>
                 </span>
                 <span class="relative h-6 w-11 rounded-full transition" :class="enabled ? 'bg-blue-600' : 'bg-slate-700'">
                     <span class="absolute top-0.5 h-5 w-5 rounded-full bg-white transition" :class="enabled ? 'left-5' : 'left-0.5'"></span>

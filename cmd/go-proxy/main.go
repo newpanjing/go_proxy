@@ -142,13 +142,13 @@ func main() {
 			if u.Backup {
 				s += " (backup)"
 			}
-			if !u.Enabled {
+			if !u.IsEnabled() {
 				s += " (disabled)"
 			}
 			parts = append(parts, s)
 		}
 		enabled := ""
-		if !r.Enabled {
+		if !r.IsEnabled() {
 			enabled = " [disabled]"
 		}
 		fmt.Printf("    %s -> %s%s\n", r.Listen, strings.Join(parts, ", "), enabled)
